@@ -8,14 +8,16 @@ use App\Models\User;
 use App\Services\Asana\AsanaService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
-class PullAsanaTasksJob implements ShouldQueue
+class PullAsanaTasksJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -30,6 +32,11 @@ class PullAsanaTasksJob implements ShouldQueue
         public readonly array $fallbackUserIds = [],
     ) {}
 
+    public function uniqueId(): string
+    {
+        return $this->asanaProjectGid;
+    }
+
     public function handle(AsanaService $service): void
     {
         $result = $this->pullTasksWithAvailableActor($service);
@@ -41,37 +48,50 @@ class PullAsanaTasksJob implements ShouldQueue
         $user = $result['user'];
         $tasks = $result['tasks'];
 
-        $now = now();
-        $seenGids = [];
-        foreach ($tasks as $task) {
-            $seenGids[] = $task['gid'];
-            AsanaTask::updateOrCreate(
-                ['gid' => $task['gid']],
-                [
-                    'asana_project_gid' => $this->asanaProjectGid,
-                    'name' => $task['name'],
-                    'search_text' => $task['search_text'],
-                    'is_completed' => $task['completed'],
-                    'parent_gid' => $task['parent_gid'],
-                    'last_synced_at' => $now,
-                ],
-            );
-        }
-
-        // Only prune when we actually saw tasks — an empty response (transient API blip,
-        // revoked permission, etc.) must not wipe the cache.
-        if ($seenGids !== []) {
-            AsanaTask::query()
-                ->where('asana_project_gid', $this->asanaProjectGid)
-                ->whereNotIn('gid', $seenGids)
-                ->delete();
-        }
+        $this->persistTasks($tasks);
 
         AsanaSyncLog::info('asana.pull_tasks.completed', [
             'asana_project_gid' => $this->asanaProjectGid,
             'user_id' => $user->id,
             'count' => count($tasks),
         ]);
+    }
+
+    /**
+     * @param  list<array{gid: string, name: string, search_text: string|null, completed: bool, parent_gid: string|null}>  $tasks
+     */
+    private function persistTasks(array $tasks): void
+    {
+        // An empty response must not wipe the cache.
+        if ($tasks === []) {
+            return;
+        }
+
+        usort($tasks, static fn (array $left, array $right): int => strcmp($left['gid'], $right['gid']));
+
+        $now = now();
+        $seenGids = array_column($tasks, 'gid');
+
+        DB::transaction(function () use ($tasks, $now, $seenGids): void {
+            foreach ($tasks as $task) {
+                AsanaTask::updateOrCreate(
+                    ['gid' => $task['gid']],
+                    [
+                        'asana_project_gid' => $this->asanaProjectGid,
+                        'name' => $task['name'],
+                        'search_text' => $task['search_text'],
+                        'is_completed' => $task['completed'],
+                        'parent_gid' => $task['parent_gid'],
+                        'last_synced_at' => $now,
+                    ],
+                );
+            }
+
+            AsanaTask::query()
+                ->where('asana_project_gid', $this->asanaProjectGid)
+                ->whereNotIn('gid', $seenGids)
+                ->delete();
+        }, 3);
     }
 
     /**

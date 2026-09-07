@@ -5,11 +5,12 @@ use App\Models\AsanaSyncLog;
 use App\Models\AsanaTask;
 use App\Models\User;
 use App\Services\Asana\AsanaService;
-use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
-uses(DatabaseMigrations::class);
+beforeEach(function (): void {
+    $this->artisan('migrate:fresh');
+});
 
 function asanaConcurrencyConnectedUser(): User
 {
