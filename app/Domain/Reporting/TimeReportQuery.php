@@ -170,15 +170,17 @@ final class TimeReportQuery
     public function entries(): LazyCollection
     {
         /** @var LazyCollection<int, TimeEntry> */
+        // Offset pagination with a fully deterministic order (date, then id).
+        // Do not switch this back to lazyById(): keyset pagination only strips
+        // existing ORDER BY clauses for its own cursor column, so combined with
+        // orderBy(spent_on) every page came back date-sorted while the "last
+        // id" cursor pointed at an arbitrary row. Any export over 200 rows then
+        // skipped some entries and repeated others.
         return $this->baseQuery()
             ->with(['project.client', 'task', 'user'])
             ->orderBy('time_entries.spent_on')
-            ->orderBy('time_entries.created_at')
-            // Qualified column for the SQL cursor (safe under joins), but the
-            // hydrated model exposes the key as `id`, so lazyById must read the
-            // page cursor back via that alias — otherwise the second chunk
-            // aborts with "[time_entries.id] column is not present".
-            ->lazyById(200, 'time_entries.id', 'id');
+            ->orderBy('time_entries.id')
+            ->lazy(200);
     }
 
     /**
