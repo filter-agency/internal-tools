@@ -137,3 +137,40 @@ it('streams every row when the export spans more than one lazyById chunk', funct
     // header + every entry, with no RuntimeException from the second page.
     expect($dataRows)->toHaveCount($count + 1);
 });
+
+it('exports every entry exactly once when the result spans several pages', function () {
+    $user = User::factory()->create(['name' => 'Alice Smith', 'role_title' => 'Developer', 'is_contractor' => false]);
+    $client = Client::factory()->create(['name' => 'Acme Corp']);
+    $project = Project::factory()->create(['client_id' => $client->id, 'name' => 'Website Redesign', 'code' => 'ACM001']);
+    $task = Task::factory()->create(['name' => 'Development']);
+
+    // 450 rows (more than two 200-row pages) inserted so that date order is
+    // the reverse of id order: the shape that made the old id cursor skip
+    // some entries and repeat others.
+    foreach (range(1, 450) as $i) {
+        TimeEntry::create([
+            'user_id' => $user->id,
+            'project_id' => $project->id,
+            'task_id' => $task->id,
+            'spent_on' => CarbonImmutable::parse('2026-04-30')->subDays($i % 30)->toDateString(),
+            'hours' => 1.0,
+            'notes' => null,
+            'is_running' => false,
+            'is_billable' => true,
+            'billable_rate_snapshot' => 84.0,
+            'billable_amount' => 84.0,
+            'external_reference' => (string) (20000 + $i),
+        ]);
+    }
+
+    $rows = explode("\r\n", trim(exportCsv()));
+    array_shift($rows);
+    $refs = array_map(fn (string $row): string => str_getcsv($row)[20], $rows);
+    $dates = array_map(fn (string $row): string => str_getcsv($row)[0], $rows);
+    $sorted = $dates;
+    sort($sorted);
+
+    expect($rows)->toHaveCount(450);
+    expect(array_unique($refs))->toHaveCount(450);
+    expect($dates)->toBe($sorted);
+});
