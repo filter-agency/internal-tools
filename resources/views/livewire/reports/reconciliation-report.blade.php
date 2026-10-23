@@ -90,10 +90,12 @@
             <thead>
                 <tr class="text-xs text-gray-500 uppercase tracking-wide border-b border-gray-100">
                     <th class="text-left px-4 py-3 font-medium">When</th>
+                    <th class="text-left px-4 py-3 font-medium">Client</th>
                     <th class="text-left px-4 py-3 font-medium">Who</th>
                     <th class="text-left px-4 py-3 font-medium">Reason</th>
                     <th class="text-left px-4 py-3 font-medium">Entry</th>
                     <th class="text-left px-4 py-3 font-medium">Action</th>
+                    <th class="text-left px-4 py-3 font-medium">Changed</th>
                     <th class="text-right px-4 py-3 font-medium">Hours</th>
                 </tr>
             </thead>
@@ -102,13 +104,16 @@
                 @php
                     $before = $change->before['hours'] ?? null;
                     $after = $change->after['hours'] ?? null;
+                    $changed = $change->changedFieldLabels();
                 @endphp
                 <tr wire:key="change-{{ $change->id }}" class="hover:bg-gray-50 align-top">
                     <td class="px-4 py-3 tabular-nums whitespace-nowrap">{{ $change->created_at->format('j M Y H:i') }}</td>
+                    <td class="px-4 py-3 text-gray-900">{{ $change->override->monthLock->client->name }}</td>
                     <td class="px-4 py-3 text-gray-900">{{ $change->override->user->name }}</td>
                     <td class="px-4 py-3 text-gray-600">{{ $change->override->reason }}</td>
                     <td class="px-4 py-3 tabular-nums text-gray-500">#{{ $change->time_entry_id }}</td>
                     <td class="px-4 py-3">{{ ucfirst($change->action) }}</td>
+                    <td class="px-4 py-3 text-gray-600">{{ $changed === [] ? '—' : implode(', ', $changed) }}</td>
                     <td class="px-4 py-3 text-right tabular-nums whitespace-nowrap">{{ $before === null ? '—' : $hours((float) $before) }} → {{ $after === null ? '—' : $hours((float) $after) }}</td>
                 </tr>
                 @endforeach

@@ -279,8 +279,156 @@ it('returns the month\'s override changes newest first with the override and use
     expect($changes->pluck('time_entry_id')->all())->toBe([$second->id, $first->id])
         ->and($changes[0]->relationLoaded('override'))->toBeTrue()
         ->and($changes[0]->override->relationLoaded('user'))->toBeTrue()
+        ->and($changes[0]->override->relationLoaded('monthLock'))->toBeTrue()
+        ->and($changes[0]->override->monthLock->relationLoaded('client'))->toBeTrue()
         ->and($changes[0]->override->user->name)->toBe('Alex Admin')
         ->and(MonthLockOverrideChange::count())->toBe(3);
+});
+
+/**
+ * The rendered override log row for a change, keyed on the wire:key the view gives it.
+ */
+function reconLogRow(string $html, MonthLockOverrideChange $change): string
+{
+    preg_match('/<tr wire:key="change-'.$change->id.'".*?<\/tr>/s', $html, $match);
+
+    return $match[0] ?? '';
+}
+
+it('shows each change against its own client when two clients are locked in the same month', function () {
+    $zeta = Client::factory()->create(['name' => 'Zeta Co']);
+    $zetaProject = reconProject($zeta, 'Zeta site', [$this->design], [$this->admin, $this->worker]);
+    $alphaEntry = reconEntry($this->project, $this->design, $this->worker, '2026-07-06', 2.0);
+    $zetaEntry = reconEntry($zetaProject, $this->design, $this->worker, '2026-07-07', 2.0);
+    $alphaLock = reconLock($this->client, $this->admin);
+    $zetaLock = reconLock($zeta, $this->admin);
+
+    reconOverride($alphaLock, $this->admin);
+    app(TimeEntryService::class)->update($alphaEntry, ['hours' => 3.0]);
+    reconOverride($zetaLock, $this->admin);
+    app(TimeEntryService::class)->update($zetaEntry, ['hours' => 4.0]);
+
+    $html = Livewire::test(ReconciliationReport::class)->html();
+    $changes = MonthReconciliation::changes(reconJuly())->keyBy('time_entry_id');
+
+    expect($changes)->toHaveCount(2)
+        ->and(reconLogRow($html, $changes[$alphaEntry->id]))->toContain('JDW Projects')->not->toContain('Zeta Co')
+        ->and(reconLogRow($html, $changes[$zetaEntry->id]))->toContain('Zeta Co')->not->toContain('JDW Projects');
+});
+
+it('shows which fields an update changed, not just the hours', function () {
+    $other = reconProject($this->client, 'Retainer', [$this->design, $this->build], [$this->admin, $this->worker]);
+    // Booked through the service, so billing figures match what an edit recalculates.
+    [$moved, $redated, $edited] = array_map(
+        fn (string $day) => app(TimeEntryService::class)->create($this->worker, [
+            'project_id' => $this->project->id,
+            'task_id' => $this->design->id,
+            'spent_on' => $day,
+            'hours' => 2.0,
+            'notes' => null,
+        ]),
+        ['2026-07-06', '2026-07-07', '2026-07-08'],
+    );
+    $lock = reconLock($this->client, $this->admin);
+    reconOverride($lock, $this->admin);
+
+    // A bulk move keeps the hours: project changes, hours do not.
+    app(TimeEntryService::class)->update($moved, ['project_id' => $other->id]);
+    app(TimeEntryService::class)->update($redated, ['spent_on' => '2026-07-20']);
+    app(TimeEntryService::class)->update($edited, ['hours' => 3.0]);
+
+    $changes = MonthReconciliation::changes(reconJuly())->keyBy('time_entry_id');
+    $html = Livewire::test(ReconciliationReport::class)->html();
+
+    expect($changes[$moved->id]->changedFieldLabels())->toBe(['Project'])
+        ->and($changes[$redated->id]->changedFieldLabels())->toBe(['Date'])
+        // More hours also means a different billable amount; nothing else moves.
+        ->and($changes[$edited->id]->changedFieldLabels())->toBe(['Hours', 'Amount'])
+        ->and(reconLogRow($html, $changes[$moved->id]))->toContain('>Project</td>')->toContain('2.00 → 2.00')
+        ->and(reconLogRow($html, $changes[$redated->id]))->toContain('>Date</td>')
+        ->and(reconLogRow($html, $changes[$edited->id]))->toContain('>Hours, Amount</td>');
+});
+
+it('shows a dash in Changed for created and deleted entries', function () {
+    $removed = reconEntry($this->project, $this->build, $this->worker, '2026-07-06', 1.5);
+    $lock = reconLock($this->client, $this->admin);
+    reconOverride($lock, $this->admin);
+
+    $created = app(TimeEntryService::class)->create($this->worker, [
+        'project_id' => $this->project->id,
+        'task_id' => $this->design->id,
+        'spent_on' => '2026-07-09',
+        'hours' => 1.0,
+        'notes' => null,
+    ]);
+    app(TimeEntryService::class)->delete($removed);
+
+    $changes = MonthReconciliation::changes(reconJuly())->keyBy('time_entry_id');
+    $html = Livewire::test(ReconciliationReport::class)->html();
+
+    expect($changes[$created->id]->changedFieldLabels())->toBe([])
+        ->and($changes[$removed->id]->changedFieldLabels())->toBe([])
+        ->and(reconLogRow($html, $changes[$created->id]))->toContain('>—</td>')
+        ->and(reconLogRow($html, $changes[$removed->id]))->toContain('>—</td>');
+});
+
+/** @return array<string, mixed> */
+function reconLoggedValues(array $overrides = []): array
+{
+    return array_merge([
+        'user_id' => 7,
+        'project_id' => 3,
+        'task_id' => 4,
+        'spent_on' => '2026-07-10',
+        'hours' => 2.0,
+        'notes' => 'Kick-off',
+        'is_billable' => true,
+        'billable_rate_snapshot' => 75.0,
+        'billable_amount' => 150.0,
+        'is_running' => false,
+    ], $overrides);
+}
+
+function reconUpdate(array $before, array $after): MonthLockOverrideChange
+{
+    return new MonthLockOverrideChange(['action' => 'updated', 'before' => $before, 'after' => $after]);
+}
+
+it('names only the logged fields whose values differ', function (array $after, array $labels) {
+    expect(reconUpdate(reconLoggedValues(), reconLoggedValues($after))->changedFieldLabels())->toBe($labels);
+})->with([
+    'hours only' => [['hours' => 3.0], ['Hours']],
+    'whole-number hours decoded as int are not a change' => [['hours' => 2], []],
+    'rate and amount compare as numbers' => [['billable_rate_snapshot' => 75, 'billable_amount' => 150], []],
+    'a date with a time part is the same day' => [['spent_on' => '2026-07-10 00:00:00'], []],
+    'another day is a change' => [['spent_on' => '2026-07-11'], ['Date']],
+    'removing the notes is a change' => [['notes' => null], ['Notes']],
+    'every field, in display order' => [[
+        'is_running' => true,
+        'billable_amount' => 1.0,
+        'billable_rate_snapshot' => 1.0,
+        'is_billable' => false,
+        'notes' => 'Changed',
+        'hours' => 1.0,
+        'spent_on' => '2026-07-11',
+        'task_id' => 9,
+        'project_id' => 9,
+        'user_id' => 9,
+    ], ['User', 'Project', 'Task', 'Date', 'Hours', 'Notes', 'Billable', 'Rate', 'Amount', 'Timer']],
+]);
+
+it('treats missing and empty notes as the same', function () {
+    $change = reconUpdate(reconLoggedValues(['notes' => null]), reconLoggedValues(['notes' => '']));
+
+    expect($change->changedFieldLabels())->toBe([]);
+});
+
+it('has no changed fields for a change that is not an update', function () {
+    $created = new MonthLockOverrideChange(['action' => 'created', 'before' => null, 'after' => reconLoggedValues()]);
+    $deleted = new MonthLockOverrideChange(['action' => 'deleted', 'before' => reconLoggedValues(), 'after' => null]);
+
+    expect($created->changedFieldLabels())->toBe([])
+        ->and($deleted->changedFieldLabels())->toBe([]);
 });
 
 it('defaults to the newest locked month and offers only locked months', function () {

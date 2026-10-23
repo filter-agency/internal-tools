@@ -76,7 +76,8 @@ final class MonthReconciliation
     }
 
     /**
-     * Changes made under an override on any lock for the month, newest first.
+     * Changes made under an override on any lock for the month, newest first,
+     * with the override, its user and its lock's client loaded.
      *
      * @return Collection<int, MonthLockOverrideChange>
      */
@@ -86,7 +87,7 @@ final class MonthReconciliation
 
         return MonthLockOverrideChange::query()
             ->whereHas('override.monthLock', fn (Builder $query) => $query->whereDate('month', $start->toDateString()))
-            ->with('override.user')
+            ->with(['override.user', 'override.monthLock.client'])
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->get();
