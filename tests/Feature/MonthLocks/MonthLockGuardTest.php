@@ -148,6 +148,52 @@ it('rejects an admin without an open override', function () {
         ->and((float) $this->entry->fresh()->hours)->toBe(2.0);
 });
 
+it('rejects an admin whose override has expired', function () {
+    guardOverride($this->july, $this->admin);
+    $this->travel(61)->minutes();
+    $this->actingAs($this->admin);
+
+    $errors = guardErrors(fn () => app(TimeEntryService::class)->update($this->entry, ['hours' => 3.0]));
+
+    expect($errors['month_lock'][0])->toBe(GUARD_ADMIN_MESSAGE)
+        ->and((float) $this->entry->fresh()->hours)->toBe(2.0)
+        ->and(MonthLockOverrideChange::count())->toBe(0);
+});
+
+it('rejects an admin when only another admin has an open override', function () {
+    guardOverride($this->july, User::factory()->admin()->create());
+    $this->actingAs($this->admin);
+
+    $errors = guardErrors(fn () => app(TimeEntryService::class)->update($this->entry, ['hours' => 3.0]));
+
+    expect($errors['month_lock'][0])->toBe(GUARD_ADMIN_MESSAGE)
+        ->and((float) $this->entry->fresh()->hours)->toBe(2.0)
+        ->and(MonthLockOverrideChange::count())->toBe(0);
+});
+
+it('rejects an admin whose override has been closed', function () {
+    app(MonthLockService::class)->closeOverride(guardOverride($this->july, $this->admin));
+    $this->actingAs($this->admin);
+
+    $errors = guardErrors(fn () => app(TimeEntryService::class)->update($this->entry, ['hours' => 3.0]));
+
+    expect($errors['month_lock'][0])->toBe(GUARD_ADMIN_MESSAGE)
+        ->and((float) $this->entry->fresh()->hours)->toBe(2.0)
+        ->and(MonthLockOverrideChange::count())->toBe(0);
+});
+
+it('rejects a locked-field write with no signed-in actor, even while an admin has an override', function () {
+    guardOverride($this->july, $this->admin);
+    expect(auth()->user())->toBeNull()
+        ->and(auth('api')->user())->toBeNull();
+
+    $errors = guardErrors(fn () => app(TimeEntryService::class)->update($this->entry, ['hours' => 3.0]));
+
+    expect($errors['month_lock'][0])->toBe(GUARD_STANDARD_MESSAGE)
+        ->and((float) $this->entry->fresh()->hours)->toBe(2.0)
+        ->and(MonthLockOverrideChange::count())->toBe(0);
+});
+
 it('allows an admin with an open override and logs who, when and why', function () {
     $override = guardOverride($this->july, $this->admin);
     $this->actingAs($this->admin);
