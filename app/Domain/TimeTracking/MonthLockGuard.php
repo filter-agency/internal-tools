@@ -27,6 +27,13 @@ final class MonthLockGuard
         'is_billable', 'billable_rate_snapshot', 'billable_amount',
     ];
 
+    /**
+     * Values kept in the override change log. is_running is logged so a timer
+     * started under an override shows up, but it is only a locked write when a
+     * timer starts (see startsTimer()).
+     */
+    private const LOGGED_FIELDS = [...self::LOCKED_FIELDS, 'is_running'];
+
     /** @var array<int, int|null> project id => client id */
     private array $projectClients = [];
 
@@ -178,7 +185,7 @@ final class MonthLockGuard
     /**
      * The locks on the client-months this write reads from or writes to:
      * the new values for a create, the stored values for a delete, and both
-     * for an update that changes a locked field.
+     * for an update that changes a locked field or starts a timer.
      *
      * @return list<MonthLock>
      */
@@ -190,7 +197,7 @@ final class MonthLockGuard
         $points = match ($action) {
             'created' => [$current],
             'deleted' => [$stored],
-            'updated' => $entry->isDirty(self::LOCKED_FIELDS) ? [$stored, $current] : [],
+            'updated' => $entry->isDirty(self::LOCKED_FIELDS) || $this->startsTimer($entry) ? [$stored, $current] : [],
             default => throw new InvalidArgumentException("Unknown time entry action [{$action}]."),
         };
 
@@ -213,6 +220,15 @@ final class MonthLockGuard
         }
 
         return $locks;
+    }
+
+    /**
+     * A timer started on a locked entry could never be stopped, because
+     * stopping changes hours. Stopping stays governed by the hours rule.
+     */
+    private function startsTimer(TimeEntry $entry): bool
+    {
+        return $entry->isDirty('is_running') && ! $entry->getOriginal('is_running') && $entry->is_running;
     }
 
     private function clientIdFor(int $projectId): ?int
@@ -251,14 +267,14 @@ final class MonthLockGuard
     {
         $values = [];
 
-        foreach (self::LOCKED_FIELDS as $field) {
+        foreach (self::LOGGED_FIELDS as $field) {
             $value = $original ? $entry->getOriginal($field) : $entry->getAttribute($field);
 
             $values[$field] = $value === null ? null : match ($field) {
                 'user_id', 'project_id', 'task_id' => (int) $value,
                 'spent_on' => $value instanceof CarbonInterface ? $value->toDateString() : (string) $value,
                 'hours', 'billable_rate_snapshot', 'billable_amount' => (float) $value,
-                'is_billable' => (bool) $value,
+                'is_billable', 'is_running' => (bool) $value,
                 default => $value,
             };
         }

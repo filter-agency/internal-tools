@@ -188,6 +188,37 @@ it('logs a deleted entry with its before values', function () {
         ->and($change->after)->toBeNull();
 });
 
+it('rejects a standard user restarting a timer on an entry in a locked month', function () {
+    $this->actingAs($this->worker);
+    // Restarting auto-stops this timer first; the refusal must roll that back.
+    $august = guardEntry($this->project, $this->task, $this->worker, '2026-08-03', 1.0);
+    $august->update(['is_running' => true, 'timer_started_at' => now()->subHour()]);
+
+    $errors = guardErrors(fn () => app(TimeEntryService::class)->startTimer($this->entry));
+
+    expect($errors['month_lock'][0])->toBe(GUARD_STANDARD_MESSAGE)
+        ->and($this->entry->fresh()->is_running)->toBeFalse()
+        ->and($august->fresh()->is_running)->toBeTrue()
+        ->and((float) $august->fresh()->hours)->toBe(1.0);
+});
+
+it('allows an admin with an open override to restart a timer and logs it', function () {
+    $override = guardOverride($this->july, $this->admin);
+    $this->actingAs($this->admin);
+
+    app(TimeEntryService::class)->startTimer($this->entry);
+
+    expect($this->entry->fresh()->is_running)->toBeTrue();
+
+    $change = MonthLockOverrideChange::sole();
+    expect($change->month_lock_override_id)->toBe($override->id)
+        ->and($change->time_entry_id)->toBe($this->entry->id)
+        ->and($change->action)->toBe('updated')
+        ->and($change->before['is_running'])->toBeFalse()
+        ->and($change->after['is_running'])->toBeTrue()
+        ->and($change->after['hours'])->toEqual(2.0);
+});
+
 it('rejects an admin whose override covers only the source month', function () {
     guardLock($this->client, '2026-08-01', '2026-09-04');
     guardOverride($this->july, $this->admin);
