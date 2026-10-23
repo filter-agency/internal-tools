@@ -83,6 +83,7 @@
                         <a href="{{ route('admin.rates.library') }}" wire:navigate.hover class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Rates</a>
                         <a href="{{ route('admin.timesheets') }}" wire:navigate.hover class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Timesheets</a>
                         <a href="{{ route('admin.time-entries.bulk-move') }}" wire:navigate.hover class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Bulk Assign</a>
+                        <a href="{{ route('admin.month-locks') }}" wire:navigate.hover class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Month locks</a>
                         <hr class="my-1 border-gray-100">
                         <a href="{{ route('admin.integrations.asana') }}" wire:navigate.hover class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Asana integration</a>
                         <a href="{{ route('admin.notifications') }}" wire:navigate.hover class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Notifications</a>

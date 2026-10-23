@@ -7,6 +7,7 @@ use App\Http\Controllers\Integrations\AsanaTimerStatusController;
 use App\Http\Controllers\Mcp\PendingActionController as McpPendingActionController;
 use App\Livewire\Admin\Clients\Index as AdminClients;
 use App\Livewire\Admin\Integrations\AsanaSettings as AdminAsanaSettings;
+use App\Livewire\Admin\MonthLocks\Index as AdminMonthLocks;
 use App\Livewire\Admin\Notifications\Index as AdminNotifications;
 use App\Livewire\Admin\Projects\Edit as AdminProjectEdit;
 use App\Livewire\Admin\Projects\Index as AdminProjects;
@@ -132,6 +133,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/rates/library', AdminRatesLibrary::class)->name('rates.library');
         Route::get('/timesheets', AdminTimesheets::class)->name('timesheets');
         Route::get('/time-entries/bulk-move', AdminTimeEntriesBulkMove::class)->name('time-entries.bulk-move');
+        Route::get('/month-locks', AdminMonthLocks::class)->name('month-locks');
         Route::get('/timesheets/{user}', DayView::class)->name('timesheets.user');
         Route::get('/timesheets/{user}/week', WeekView::class)->name('timesheets.user.week');
         Route::get('/integrations/asana', AdminAsanaSettings::class)->name('integrations.asana');
