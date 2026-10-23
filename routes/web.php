@@ -25,6 +25,7 @@ use App\Livewire\Reports\ClientDetail;
 use App\Livewire\Reports\ClientsReport;
 use App\Livewire\Reports\ProjectDetail;
 use App\Livewire\Reports\ProjectsReport;
+use App\Livewire\Reports\ReconciliationReport;
 use App\Livewire\Reports\TasksReport;
 use App\Livewire\Reports\TeamOverviewReport;
 use App\Livewire\Reports\TeamReport;
@@ -114,6 +115,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/projects/{project}/budget', fn (string $project) => redirect()->route('reports.projects.detail', $project))
             ->name('projects.budget');
         Route::get('/tasks', TasksReport::class)->name('tasks');
+        Route::get('/reconciliation', ReconciliationReport::class)->name('reconciliation');
         Route::get('/team', TeamOverviewReport::class)->name('team');
         Route::get('/team/{user}', TeamReport::class)->name('team.member');
     });

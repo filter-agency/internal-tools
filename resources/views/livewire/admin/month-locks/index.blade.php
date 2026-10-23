@@ -88,6 +88,7 @@
                             @endforelse
                         </td>
                         <td class="px-3 py-2 text-right whitespace-nowrap">
+                            <a href="{{ route('reports.reconciliation', ['month' => $lock->month->format('Y-m')]) }}" wire:navigate class="text-sm text-blue-600 hover:text-blue-800 mr-4">Reconciliation</a>
                             <button type="button" wire:click="startOverride({{ $lock->id }})" class="text-sm text-blue-600 hover:text-blue-800">Open override</button>
                         </td>
                     </tr>
