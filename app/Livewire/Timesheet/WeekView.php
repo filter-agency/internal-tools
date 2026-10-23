@@ -4,8 +4,10 @@ namespace App\Livewire\Timesheet;
 
 use App\Domain\TimeTracking\HoursFormatter;
 use App\Domain\TimeTracking\HoursParser;
+use App\Domain\TimeTracking\MonthLockGuard;
 use App\Domain\TimeTracking\TimeEntryService;
 use App\Models\AsanaTask;
+use App\Models\MonthLock;
 use App\Models\Project;
 use App\Models\TimeEntry;
 use App\Models\TimesheetExtraRow;
@@ -14,6 +16,7 @@ use App\Services\Asana\AsanaTaskRefreshDispatcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
@@ -376,7 +379,8 @@ class WeekView extends Component
             } else {
                 $query->where('asana_task_gid', $asanaGid);
             }
-            $query->get()->each(fn (TimeEntry $entry) => app(TimeEntryService::class)->delete($entry));
+            // All or nothing: a month lock refusal keeps the whole row.
+            DB::transaction(fn () => $query->get()->each(fn (TimeEntry $entry) => app(TimeEntryService::class)->delete($entry)));
         }
 
         unset($this->cellValues[$rowKey]);
@@ -386,16 +390,29 @@ class WeekView extends Component
 
     // --- Save ---
 
-    public function save(): void
+    /**
+     * Returns true once the week is saved. A month lock refusal rolls back
+     * every cell and surfaces as a "month_lock" error instead.
+     */
+    public function save(): bool
     {
         if ($this->isReadOnly) {
-            return;
+            return false;
         }
 
         $user = $this->viewedUser();
         $service = app(TimeEntryService::class);
         $weekStart = CarbonImmutable::parse($this->selectedDate)->startOfWeek();
 
+        DB::transaction(fn () => $this->saveWeek($user, $service, $weekStart));
+
+        session()->flash('week_saved', true);
+
+        return true;
+    }
+
+    private function saveWeek(User $user, TimeEntryService $service, CarbonImmutable $weekStart): void
+    {
         // Pull every entry in the week so we can update/delete in-place.
         $existing = TimeEntry::where('user_id', $user->id)
             ->whereBetween('spent_on', [$weekStart->toDateString(), $weekStart->addDays(6)->toDateString()])
@@ -461,8 +478,6 @@ class WeekView extends Component
             ->values()
             ->all();
         $this->persistExtraRowsForWeek($weekStart);
-
-        session()->flash('week_saved', true);
     }
 
     /**
@@ -652,6 +667,7 @@ class WeekView extends Component
             if (! isset($rowsFromEntries[$key])) {
                 $rowsFromEntries[$key] = [
                     'key' => $key,
+                    'client_id' => $entry->project->client_id,
                     'project_name' => $entry->project->timesheetDisplayName(),
                     'client_name' => $entry->project->client->name,
                     'task_name' => $entry->task->name,
@@ -686,6 +702,7 @@ class WeekView extends Component
             }
             $rowsFromEntries[$extraKey] = [
                 'key' => $extraKey,
+                'client_id' => $project->client_id,
                 'project_name' => $project->timesheetDisplayName(),
                 'client_name' => $project->client?->name,
                 'task_name' => $task->name,
@@ -743,6 +760,16 @@ class WeekView extends Component
         }
         $weekTotal = array_sum($dayTotals);
 
+        // Locked client-months this week that the signed-in viewer cannot
+        // change, looked up once for every cell. A display hint only: the
+        // month lock observer still enforces.
+        /** @var User|null $viewer */
+        $viewer = auth()->user();
+        $lockedClientMonths = array_filter(
+            app(MonthLockGuard::class)->lockedClientMonths($weekStart, $weekStart->addDays(6)),
+            fn (MonthLock $lock): bool => ! $lock->isEditableBy($viewer),
+        );
+
         // Direct reports for the Team Timesheets dropdown
         $teamMembers = collect();
         $authUser = auth()->user();
@@ -758,6 +785,7 @@ class WeekView extends Component
             'weekDays' => $weekDays,
             'rows' => $sortedRows,
             'runningCellHours' => $runningCellHours,
+            'lockedClientMonths' => $lockedClientMonths,
             'dayTotals' => $dayTotals,
             'weekTotal' => $weekTotal,
             'projectsForPicker' => $projects->map(fn ($p) => [

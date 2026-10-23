@@ -45,6 +45,12 @@ class MonthLock extends Model
             ->first();
     }
 
+    /** Only an admin with an open override may change time in a locked month. */
+    public function isEditableBy(?User $user): bool
+    {
+        return $user !== null && $user->isAdmin() && $this->activeOverrideFor($user) !== null;
+    }
+
     /** @return BelongsTo<Client, $this> */
     public function client(): BelongsTo
     {

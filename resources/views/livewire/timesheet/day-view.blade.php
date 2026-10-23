@@ -222,6 +222,8 @@
             {{ session('copy_rows_message') }}
         </div>
     @endif
+    {{-- Refusals from row actions; the entry modal shows its own copy. --}}
+    @error('month_lock')<p x-show="!showEntryModal" class="text-red-600 text-xs mb-2">{{ $message }}</p>@enderror
     @if ($dayEntries->isEmpty())
         <div
             class="rounded-xl bg-gray-100 flex items-center justify-center px-8 text-center"
@@ -237,6 +239,7 @@
     @else
         <div class="space-y-2">
             @foreach ($dayEntries as $entry)
+                @php $entryLock = $lockedClientMonths[$entry->project->client_id.'|'.$entry->spent_on->format('Y-m')] ?? null; @endphp
                 <div class="bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-start gap-4">
                     {{-- Colour band --}}
                     <div class="mt-1 w-1 self-stretch rounded-full flex-shrink-0" style="background-color: {{ $entry->task->colour }}"></div>
@@ -246,6 +249,9 @@
                         <div class="flex items-baseline gap-2 flex-wrap">
                             <span class="font-semibold text-gray-900">{{ $entry->project->timesheetDisplayName() }}</span>
                             <span class="text-gray-400 text-sm">{{ $entry->project->client->name }}</span>
+                            @if ($entryLock)
+                                <x-month-lock-badge :lock="$entryLock" />
+                            @endif
                         </div>
                         <div class="text-sm text-gray-600 mt-0.5">{{ $entry->task->name }}</div>
                         @if ($entry->asana_task_gid)
@@ -288,7 +294,8 @@
                             @if ($entry->is_running)
                                 <button
                                     wire:click="stopTimer({{ $entry->id }})"
-                                    class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                                    @disabled($entryLock)
+                                    class="p-1.5 rounded transition {{ $entryLock ? 'text-gray-300 cursor-not-allowed' : 'text-gray-400 hover:text-red-600 hover:bg-red-50' }}"
                                     title="Stop timer"
                                 >
                                     <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -298,7 +305,8 @@
                             @else
                                 <button
                                     wire:click="startTimer({{ $entry->id }})"
-                                    class="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded transition"
+                                    @disabled($entryLock)
+                                    class="p-1.5 rounded transition {{ $entryLock ? 'text-gray-300 cursor-not-allowed' : 'text-gray-400 hover:text-green-600 hover:bg-green-50' }}"
                                     title="Start timer"
                                 >
                                     <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -309,7 +317,8 @@
                         @endunless
                         <button
                             wire:click="openEditModal({{ $entry->id }})"
-                            class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition"
+                            @disabled($entryLock)
+                            class="p-1.5 rounded transition {{ $entryLock ? 'text-gray-300 cursor-not-allowed' : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50' }}"
                             title="Edit"
                         >
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -319,7 +328,8 @@
                         <button
                             wire:click="deleteEntry({{ $entry->id }})"
                             wire:confirm="Delete this time entry?"
-                            class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                            @disabled($entryLock)
+                            class="p-1.5 rounded transition {{ $entryLock ? 'text-gray-300 cursor-not-allowed' : 'text-gray-400 hover:text-red-600 hover:bg-red-50' }}"
                             title="Delete"
                         >
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -986,6 +996,7 @@
                             @endif
                         </div>
                     </div>
+                    @error('month_lock')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
 
                 </div>
 

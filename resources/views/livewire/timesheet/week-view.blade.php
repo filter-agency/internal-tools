@@ -154,7 +154,12 @@
                         $rowTotal = 0.0;
                         $cells = $cellValues[$row['key']] ?? $row['cells'];
                         $runningCells = $runningCellHours[$row['key']] ?? [];
+                        $cellLocks = [];
+                        $rowHasLockedTime = false;
                         for ($i = 0; $i < 7; $i++) {
+                            $cellLocks[$i] = $lockedClientMonths[$row['client_id'].'|'.$weekDays[$i]->format('Y-m')] ?? null;
+                            // Saved time in a locked month, which removing the row would delete.
+                            $rowHasLockedTime = $rowHasLockedTime || ($cellLocks[$i] !== null && trim((string) ($row['cells'][$i] ?? '')) !== '');
                             $raw = trim((string) ($cells[$i] ?? ''));
                             $hours = 0.0;
                             if ($raw !== '') {
@@ -189,7 +194,11 @@
                                            placeholder="—"
                                            @input="markWeekDirty()"
                                            @change="markWeekDirty()"
-                                           class="w-full text-center text-sm tabular-nums border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent">
+                                           @disabled($cellLocks[$i])
+                                           class="w-full text-center text-sm tabular-nums border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent {{ $cellLocks[$i] ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : '' }}">
+                                @endif
+                                @if($cellLocks[$i])
+                                    <div class="mt-1 text-center"><x-month-lock-badge :lock="$cellLocks[$i]" /></div>
                                 @endif
                             </td>
                         @endfor
@@ -200,7 +209,8 @@
                             <td class="px-2 py-3 text-center">
                                 <button wire:click="removeRow('{{ $row['key'] }}')"
                                         wire:confirm="Remove this row? Any time logged against it this week will be deleted."
-                                        class="text-gray-300 hover:text-red-600 transition" title="Remove row">
+                                        @disabled($rowHasLockedTime)
+                                        class="transition {{ $rowHasLockedTime ? 'text-gray-200 cursor-not-allowed' : 'text-gray-300 hover:text-red-600' }}" title="Remove row">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                                 </button>
                             </td>
@@ -253,10 +263,11 @@
                 Add row
             </button>
             <button type="button"
-                    @click="$wire.save().then(() => clearWeekDirty())"
+                    @click="$wire.save().then((saved) => { if (saved) clearWeekDirty(); })"
                     class="inline-flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition">
                 Save
             </button>
+            @error('month_lock')<p class="text-red-600 text-xs">{{ $message }}</p>@enderror
         </div>
     @endunless
 

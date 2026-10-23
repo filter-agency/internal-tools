@@ -6,8 +6,10 @@ use App\Domain\TimeTracking\AsanaProjectAssociationService;
 use App\Domain\TimeTracking\CalendarEventAssociationService;
 use App\Domain\TimeTracking\HoursFormatter;
 use App\Domain\TimeTracking\HoursParser;
+use App\Domain\TimeTracking\MonthLockGuard;
 use App\Domain\TimeTracking\TimeEntryService;
 use App\Models\AsanaTask;
+use App\Models\MonthLock;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\TimeEntry;
@@ -747,6 +749,15 @@ class DayView extends Component
 
         $dayTotal = array_sum($entryDisplayHours);
 
+        // Locked client-months this week that the signed-in viewer cannot
+        // change. A display hint only: the month lock observer still enforces.
+        /** @var User|null $viewer */
+        $viewer = auth()->user();
+        $lockedClientMonths = array_filter(
+            app(MonthLockGuard::class)->lockedClientMonths($weekStart, $weekStart->addDays(6)),
+            fn (MonthLock $lock): bool => ! $lock->isEditableBy($viewer),
+        );
+
         /** @var array<int, array{id: int, code: string, name: string, display_name: string, client_name: string, asana_project_gids: array<int, string>, asana_task_match_terms: array<int, string>, asana_task_required: bool, tasks: array<int, array{id: int, name: string, colour: string, is_billable: bool}>}> $projectsForPicker */
         $projectsForPicker = Cache::remember(
             "projects_picker_{$user->id}",
@@ -840,6 +851,7 @@ class DayView extends Component
             'weekTotal' => $weekTotal,
             'dayEntries' => $dayEntries,
             'entryDisplayHours' => $entryDisplayHours,
+            'lockedClientMonths' => $lockedClientMonths,
             'dayTotal' => $dayTotal,
             'canCopyFromPrior' => $canCopyFromPrior,
             'projectsForPicker' => $projectsForPicker,
