@@ -32,7 +32,8 @@ return new class extends Migration
 
         Schema::create('month_lock_overrides', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('month_lock_id')->constrained()->cascadeOnDelete();
+            // Restrict, not cascade: deleting a lock must not erase who overrode it and why.
+            $table->foreignId('month_lock_id')->constrained()->restrictOnDelete();
             $table->foreignId('user_id')->constrained()->restrictOnDelete();
             $table->text('reason');
             $table->timestamp('expires_at');
@@ -44,7 +45,7 @@ return new class extends Migration
 
         Schema::create('month_lock_override_changes', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('month_lock_override_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('month_lock_override_id')->constrained()->restrictOnDelete();
             // Deliberately no foreign key: the log must survive the entry being deleted.
             $table->unsignedBigInteger('time_entry_id')->index();
             $table->string('action');

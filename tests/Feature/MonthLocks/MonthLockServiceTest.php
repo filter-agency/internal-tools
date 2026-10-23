@@ -4,6 +4,7 @@ use App\Domain\Reporting\ClientMonthTotals;
 use App\Domain\TimeTracking\MonthLockService;
 use App\Models\Client;
 use App\Models\MonthLock;
+use App\Models\MonthLockOverrideChange;
 use App\Models\MonthLockSnapshot;
 use App\Models\Project;
 use App\Models\Task;
@@ -11,6 +12,7 @@ use App\Models\TimeEntry;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 
@@ -259,4 +261,23 @@ it('closes an override', function () {
     expect($override->fresh()->closed_at)->not->toBeNull()
         ->and($override->fresh()->isActive())->toBeFalse()
         ->and($lock->activeOverrideFor($admin))->toBeNull();
+});
+
+it('keeps the override log when something tries to delete a lock or an override', function () {
+    $lock = lockJuly(Client::factory()->create());
+    $override = app(MonthLockService::class)->openOverride($lock, User::factory()->admin()->create(), 'Correcting a mis-booked task');
+    $change = MonthLockOverrideChange::create([
+        'month_lock_override_id' => $override->id,
+        'time_entry_id' => 1,
+        'action' => 'updated',
+        'before' => ['hours' => 2.0],
+        'after' => ['hours' => 3.0],
+    ]);
+
+    expect(fn () => $lock->delete())->toThrow(QueryException::class)
+        ->and(fn () => $override->delete())->toThrow(QueryException::class);
+
+    expect($lock->fresh())->not->toBeNull()
+        ->and($override->fresh())->not->toBeNull()
+        ->and($change->fresh())->not->toBeNull();
 });
