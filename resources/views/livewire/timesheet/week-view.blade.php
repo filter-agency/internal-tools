@@ -157,7 +157,7 @@
                         $cellLocks = [];
                         $rowHasLockedTime = false;
                         for ($i = 0; $i < 7; $i++) {
-                            $cellLocks[$i] = $lockedClientMonths[$row['client_id'].'|'.$weekDays[$i]->format('Y-m')] ?? null;
+                            $cellLocks[$i] = $lockedClientMonths[\App\Domain\TimeTracking\MonthLockGuard::key($row['client_id'], $weekDays[$i])] ?? null;
                             // Saved time in a locked month, which removing the row would delete.
                             $rowHasLockedTime = $rowHasLockedTime || ($cellLocks[$i] !== null && trim((string) ($row['cells'][$i] ?? '')) !== '');
                             $raw = trim((string) ($cells[$i] ?? ''));

@@ -9,7 +9,6 @@ use App\Domain\TimeTracking\HoursParser;
 use App\Domain\TimeTracking\MonthLockGuard;
 use App\Domain\TimeTracking\TimeEntryService;
 use App\Models\AsanaTask;
-use App\Models\MonthLock;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\TimeEntry;
@@ -753,10 +752,7 @@ class DayView extends Component
         // change. A display hint only: the month lock observer still enforces.
         /** @var User|null $viewer */
         $viewer = auth()->user();
-        $lockedClientMonths = array_filter(
-            app(MonthLockGuard::class)->lockedClientMonths($weekStart, $weekStart->addDays(6)),
-            fn (MonthLock $lock): bool => ! $lock->isEditableBy($viewer),
-        );
+        $lockedClientMonths = app(MonthLockGuard::class)->lockedClientMonthsFor($viewer, $weekStart, $weekStart->addDays(6));
 
         /** @var array<int, array{id: int, code: string, name: string, display_name: string, client_name: string, asana_project_gids: array<int, string>, asana_task_match_terms: array<int, string>, asana_task_required: bool, tasks: array<int, array{id: int, name: string, colour: string, is_billable: bool}>}> $projectsForPicker */
         $projectsForPicker = Cache::remember(

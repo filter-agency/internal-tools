@@ -7,7 +7,6 @@ use App\Domain\TimeTracking\HoursParser;
 use App\Domain\TimeTracking\MonthLockGuard;
 use App\Domain\TimeTracking\TimeEntryService;
 use App\Models\AsanaTask;
-use App\Models\MonthLock;
 use App\Models\Project;
 use App\Models\TimeEntry;
 use App\Models\TimesheetExtraRow;
@@ -765,10 +764,7 @@ class WeekView extends Component
         // month lock observer still enforces.
         /** @var User|null $viewer */
         $viewer = auth()->user();
-        $lockedClientMonths = array_filter(
-            app(MonthLockGuard::class)->lockedClientMonths($weekStart, $weekStart->addDays(6)),
-            fn (MonthLock $lock): bool => ! $lock->isEditableBy($viewer),
-        );
+        $lockedClientMonths = app(MonthLockGuard::class)->lockedClientMonthsFor($viewer, $weekStart, $weekStart->addDays(6));
 
         // Direct reports for the Team Timesheets dropdown
         $teamMembers = collect();

@@ -239,7 +239,7 @@
     @else
         <div class="space-y-2">
             @foreach ($dayEntries as $entry)
-                @php $entryLock = $lockedClientMonths[$entry->project->client_id.'|'.$entry->spent_on->format('Y-m')] ?? null; @endphp
+                @php $entryLock = $lockedClientMonths[\App\Domain\TimeTracking\MonthLockGuard::key($entry->project->client_id, $entry->spent_on)] ?? null; @endphp
                 <div class="bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-start gap-4">
                     {{-- Colour band --}}
                     <div class="mt-1 w-1 self-stretch rounded-full flex-shrink-0" style="background-color: {{ $entry->task->colour }}"></div>

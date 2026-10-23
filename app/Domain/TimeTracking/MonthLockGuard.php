@@ -140,10 +140,16 @@ final class MonthLockGuard
             ->first();
     }
 
+    /** The key lockedClientMonths() results use: "{clientId}|Y-m". */
+    public static function key(int $clientId, CarbonInterface $date): string
+    {
+        return $clientId.'|'.$date->format('Y-m');
+    }
+
     /**
      * Locks for every month that overlaps the range.
      *
-     * @return array<string, MonthLock> keyed "{clientId}|Y-m"
+     * @return array<string, MonthLock> keyed by key()
      */
     public function lockedClientMonths(CarbonImmutable $from, CarbonImmutable $to): array
     {
@@ -151,8 +157,23 @@ final class MonthLockGuard
             ->where('month', '>=', $from->startOfMonth()->toDateString())
             ->where('month', '<', $to->startOfMonth()->addMonth()->toDateString())
             ->get()
-            ->keyBy(fn (MonthLock $lock): string => $lock->client_id.'|'.$lock->month->format('Y-m'))
+            ->keyBy(fn (MonthLock $lock): string => self::key($lock->client_id, $lock->month))
             ->all();
+    }
+
+    /**
+     * The locks overlapping the range that this viewer cannot change, which
+     * the timesheets mark "Locked" and disable. Uses the same rule as
+     * assertWritable(), so the hint matches what a write would be told.
+     *
+     * @return array<string, MonthLock> keyed by key()
+     */
+    public function lockedClientMonthsFor(?User $viewer, CarbonImmutable $from, CarbonImmutable $to): array
+    {
+        $locks = $this->lockedClientMonths($from, $to);
+        $overrides = $this->activeOverrides($viewer, $locks);
+
+        return array_filter($locks, fn (MonthLock $lock): bool => ! isset($overrides[$lock->id]));
     }
 
     /**
@@ -167,10 +188,11 @@ final class MonthLockGuard
         }
 
         $actor = $this->actor();
+        $active = $this->activeOverrides($actor, $locks);
         $overrides = [];
 
         foreach ($locks as $lock) {
-            $override = $actor?->isAdmin() ? $lock->activeOverrideFor($actor) : null;
+            $override = $active[$lock->id] ?? null;
 
             if ($override === null) {
                 throw ValidationException::withMessages(['month_lock' => $this->refusal($lock, $actor)]);
@@ -206,7 +228,7 @@ final class MonthLockGuard
             $clientId = $projectId === null ? null : $this->clientIdFor((int) $projectId);
 
             if ($clientId !== null && $spentOn instanceof CarbonInterface) {
-                $clientMonths[$clientId.'|'.$spentOn->format('Y-m')] = [$clientId, $spentOn];
+                $clientMonths[self::key($clientId, $spentOn)] = [$clientId, $spentOn];
             }
         }
 
@@ -220,6 +242,31 @@ final class MonthLockGuard
         }
 
         return $locks;
+    }
+
+    /**
+     * The rule for who may change a locked month: an admin, through their own
+     * unexpired, unclosed override. Returns that override per lock id, in one
+     * query; anyone who is not an admin costs no query.
+     *
+     * @param  array<array-key, MonthLock>  $locks
+     * @return array<int, MonthLockOverride>
+     */
+    private function activeOverrides(?User $user, array $locks): array
+    {
+        if ($user === null || ! $user->isAdmin() || $locks === []) {
+            return [];
+        }
+
+        // Ascending ids, so keyBy keeps the latest override per lock.
+        return MonthLockOverride::query()
+            ->active()
+            ->where('user_id', $user->id)
+            ->whereIn('month_lock_id', array_map(fn (MonthLock $lock): int => $lock->id, array_values($locks)))
+            ->orderBy('id')
+            ->get()
+            ->keyBy('month_lock_id')
+            ->all();
     }
 
     /**

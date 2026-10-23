@@ -16,6 +16,7 @@ use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use PHPUnit\Framework\Assert;
@@ -311,4 +312,42 @@ it('finds locks by client-month and lists them for a date range', function () {
     // A single-day range on the first of the month still finds that month.
     expect(array_keys($guard->lockedClientMonths(CarbonImmutable::parse('2026-08-01'), CarbonImmutable::parse('2026-08-01'))))
         ->toBe(["{$other->id}|2026-08"]);
+});
+
+it('lists only the locks a viewer cannot change, with one override query for an admin', function () {
+    $guard = app(MonthLockGuard::class);
+    $other = Client::factory()->create();
+    $otherJuly = guardLock($other, '2026-07-01', '2026-08-05');
+    guardOverride($this->july, $this->admin);
+    $from = CarbonImmutable::parse('2026-07-27');
+    $to = $from->addDays(6);
+    $overrideQueries = function (callable $read): int {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $read();
+        $count = collect(DB::getQueryLog())->filter(fn (array $q) => str_contains($q['query'], 'month_lock_overrides'))->count();
+        DB::disableQueryLog();
+
+        return $count;
+    };
+
+    $forAdmin = [];
+    $forWorker = [];
+    $adminQueries = $overrideQueries(function () use ($guard, $from, $to, &$forAdmin) {
+        $forAdmin = $guard->lockedClientMonthsFor($this->admin, $from, $to);
+    });
+    $workerQueries = $overrideQueries(function () use ($guard, $from, $to, &$forWorker) {
+        $forWorker = $guard->lockedClientMonthsFor($this->worker, $from, $to);
+    });
+
+    // The admin's override covers JDW's July, so only the other client's stays locked.
+    expect(array_keys($forAdmin))->toBe([MonthLockGuard::key($other->id, $from)])
+        ->and($forAdmin[MonthLockGuard::key($other->id, $from)]->is($otherJuly))->toBeTrue()
+        ->and($adminQueries)->toBe(1)
+        ->and(array_keys($forWorker))->toEqualCanonicalizing([
+            MonthLockGuard::key($this->client->id, $from),
+            MonthLockGuard::key($other->id, $from),
+        ])
+        ->and($workerQueries)->toBe(0)
+        ->and(MonthLockGuard::key($this->client->id, $from))->toBe("{$this->client->id}|2026-07");
 });
