@@ -412,6 +412,8 @@ class WeekView extends Component
 
     private function saveWeek(User $user, TimeEntryService $service, CarbonImmutable $weekStart): void
     {
+        $hoursFormat = $this->currentHoursFormat();
+
         // Pull every entry in the week so we can update/delete in-place.
         $existing = TimeEntry::where('user_id', $user->id)
             ->whereBetween('spent_on', [$weekStart->toDateString(), $weekStart->addDays(6)->toDateString()])
@@ -445,7 +447,10 @@ class WeekView extends Component
 
                 if ($existingForCell->isNotEmpty()) {
                     $storedTotal = round((float) $existingForCell->sum(fn (TimeEntry $entry) => (float) $entry->hours), 2);
-                    if (abs($storedTotal - $hours) < 0.005) {
+                    // A cell still showing what render() filled it with is
+                    // untouched, even when h:mm does not parse back to the
+                    // stored value (1.09h shows as 1:05, which parses as 1.08h).
+                    if ($raw === HoursFormatter::format($storedTotal, $hoursFormat) || abs($storedTotal - $hours) < 0.005) {
                         continue;
                     }
 

@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\TimeTracking\HoursFormatter;
 use App\Domain\TimeTracking\MonthLockService;
 use App\Domain\TimeTracking\TimeEntryService;
 use App\Livewire\Admin\TimeEntries\BulkMove;
@@ -171,6 +172,53 @@ it('saves nothing from the week when one changed cell is in a locked month', fun
     expect(TimeEntry::count())->toBe(1)
         ->and((float) $julyEntry->fresh()->hours)->toBe(2.0)
         ->and(TimeEntry::whereDate('spent_on', '2026-08-01')->exists())->toBeFalse();
+});
+
+it('saves the week around an untouched locked cell whose h:mm value does not round-trip', function () {
+    // 1.09h shows as 1:05, which parses back as 1.08h.
+    $julyEntry = timesheetLockEntry($this->project, $this->task, $this->worker, '2026-07-28', 1.09);
+    $augustEntry = timesheetLockEntry($this->project, $this->task, $this->worker, '2026-08-01', 1.0);
+    timesheetLockJuly($this->client);
+    $this->worker->update(['schedule_preferences' => ['hours_display_format' => HoursFormatter::FORMAT_HHMM]]);
+    $this->actingAs($this->worker);
+    $row = timesheetLockRowKey($this->project, $this->task);
+
+    Livewire::test(WeekView::class)
+        ->set('selectedDate', '2026-07-27')
+        ->assertSet("cellValues.{$row}.1", '1:05')
+        ->set("cellValues.{$row}.5", '2:00')
+        ->call('save')
+        ->assertHasNoErrors();
+
+    expect((float) $julyEntry->fresh()->hours)->toBe(1.09)
+        ->and((float) $augustEntry->fresh()->hours)->toBe(2.0);
+});
+
+it('keeps the stored hours when an admin under an override edits only the notes', function () {
+    // Created through the service so an update recomputes the same billable values.
+    $entry = app(TimeEntryService::class)->create($this->admin, [
+        'project_id' => $this->project->id,
+        'task_id' => $this->task->id,
+        'spent_on' => '2026-07-10',
+        'hours' => 1.09,
+        'notes' => null,
+    ]);
+    $lock = timesheetLockJuly($this->client);
+    app(MonthLockService::class)->openOverride($lock, $this->admin, 'Correcting a mis-booked task');
+    $this->actingAs($this->admin);
+
+    Livewire::test(DayView::class)
+        ->set('selectedDate', '2026-07-10')
+        ->call('openEditModal', $entry->id)
+        ->assertSet('hoursInput', '1:05')
+        ->set('notes', 'Clarified scope')
+        ->call('save')
+        ->assertHasNoErrors();
+
+    $fresh = $entry->fresh();
+    expect((float) $fresh->hours)->toBe(1.09)
+        ->and($fresh->notes)->toBe('Clarified scope')
+        ->and(MonthLockOverrideChange::sole()->changedFieldLabels())->toBe(['Notes']);
 });
 
 it('marks and disables locked cells in the week view', function () {

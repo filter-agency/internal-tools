@@ -54,6 +54,12 @@ class DayView extends Component
     // Entry form fields
     public string $hoursInput = '';
 
+    // The hoursInput openEditModal() filled in. Saving with it unchanged keeps
+    // the entry's stored hours, because h:mm does not always parse back to
+    // them (1.09h shows as 1:05, which parses as 1.08h).
+    #[Locked]
+    public string $editingHoursInput = '';
+
     public string $notes = '';
 
     public string $entryDate = '';
@@ -258,6 +264,7 @@ class DayView extends Component
         $this->selectedTaskId = $entry->task_id;
         $this->selectedAsanaTaskGid = $entry->asana_task_gid ?? '';
         $this->hoursInput = HoursFormatter::format((float) $entry->hours, $this->currentHoursFormat());
+        $this->editingHoursInput = $this->hoursInput;
         $this->notes = $entry->notes ?? '';
         $this->entryDate = $entry->spent_on->toDateString();
         $this->lastCalendarPullTitle = $this->calendarTitleForEntry($entry);
@@ -395,6 +402,9 @@ class DayView extends Component
         if ($isEdit && $this->editingEntryId !== null) {
             $entry = $this->guardEntry($this->editingEntryId);
             if ($entry) {
+                if (trim($this->hoursInput) === $this->editingHoursInput) {
+                    $data['hours'] = (float) $entry->hours;
+                }
                 $service->update($entry, $data);
                 $saved = true;
             }
@@ -868,6 +878,7 @@ class DayView extends Component
         $this->selectedTaskId = null;
         $this->selectedAsanaTaskGid = '';
         $this->hoursInput = '';
+        $this->editingHoursInput = '';
         $this->notes = '';
         $this->hoursError = '';
         $this->entryDate = $this->selectedDate;
