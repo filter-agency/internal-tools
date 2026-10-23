@@ -42,6 +42,12 @@ function lockJuly(Client $client, ?User $admin = null, string $issuedOn = '2026-
     );
 }
 
+/** @return list<int> ids of the user's active overrides on the lock */
+function lockActiveOverrideIds(MonthLock $lock, User $user): array
+{
+    return $lock->overrides()->active()->where('user_id', $user->id)->orderBy('id')->pluck('id')->all();
+}
+
 it('snapshots hours by project and task when a month is locked', function () {
     $client = Client::factory()->create();
     $other = Client::factory()->create();
@@ -201,12 +207,12 @@ it('opens an override that expires after 60 minutes', function () {
         ->and($override->expires_at->equalTo(now()->addMinutes(60)))->toBeTrue()
         ->and($override->closed_at)->toBeNull()
         ->and($override->isActive())->toBeTrue()
-        ->and($lock->activeOverrideFor($admin)?->is($override))->toBeTrue();
+        ->and(lockActiveOverrideIds($lock, $admin))->toBe([$override->id]);
 
     $this->travel(61)->minutes();
 
     expect($override->fresh()->isActive())->toBeFalse()
-        ->and($lock->activeOverrideFor($admin))->toBeNull();
+        ->and(lockActiveOverrideIds($lock, $admin))->toBe([]);
 });
 
 it('requires an admin and a reason of at least 10 characters to open an override', function () {
@@ -246,8 +252,8 @@ it('closes the same admin\'s other active override when opening a new one', func
         ->and($first->fresh()->isActive())->toBeFalse()
         ->and($second->isActive())->toBeTrue()
         ->and($others->fresh()->isActive())->toBeTrue()
-        ->and($lock->activeOverrideFor($admin)?->is($second))->toBeTrue()
-        ->and($lock->activeOverrideFor($otherAdmin)?->is($others))->toBeTrue();
+        ->and(lockActiveOverrideIds($lock, $admin))->toBe([$second->id])
+        ->and(lockActiveOverrideIds($lock, $otherAdmin))->toBe([$others->id]);
 });
 
 it('closes an override', function () {
@@ -260,7 +266,7 @@ it('closes an override', function () {
 
     expect($override->fresh()->closed_at)->not->toBeNull()
         ->and($override->fresh()->isActive())->toBeFalse()
-        ->and($lock->activeOverrideFor($admin))->toBeNull();
+        ->and(lockActiveOverrideIds($lock, $admin))->toBe([]);
 });
 
 it('keeps the override log when something tries to delete a lock or an override', function () {

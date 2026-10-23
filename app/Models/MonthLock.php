@@ -36,15 +36,6 @@ class MonthLock extends Model
         return $this->month->format('F Y');
     }
 
-    public function activeOverrideFor(User $user): ?MonthLockOverride
-    {
-        return $this->overrides()
-            ->active()
-            ->where('user_id', $user->id)
-            ->latest('id')
-            ->first();
-    }
-
     /** @return BelongsTo<Client, $this> */
     public function client(): BelongsTo
     {
