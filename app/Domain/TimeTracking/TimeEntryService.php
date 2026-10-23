@@ -126,28 +126,32 @@ final class TimeEntryService
             return;
         }
 
-        // Signed diff so clock skew (timer_started_at in the future) yields a negative
-        // elapsed instead of being silently flipped positive.
-        $elapsedSeconds = $entry->timer_started_at->diffInSeconds(Carbon::now(), false);
-        $elapsed = max(0.0, $elapsedSeconds) / 3600;
-        $newHours = round((float) $entry->hours + $elapsed, 2);
-        $newHours = max(0.01, min(24.0, $newHours));
+        // A transaction, like the other writes, so a stop made under a month
+        // lock override is atomic with its change log.
+        DB::transaction(function () use ($entry): void {
+            // Signed diff so clock skew (timer_started_at in the future) yields a negative
+            // elapsed instead of being silently flipped positive.
+            $elapsedSeconds = $entry->timer_started_at->diffInSeconds(Carbon::now(), false);
+            $elapsed = max(0.0, $elapsedSeconds) / 3600;
+            $newHours = round((float) $entry->hours + $elapsed, 2);
+            $newHours = max(0.01, min(24.0, $newHours));
 
-        /** @var Project $project */
-        $project = $entry->project()->with(['tasks', 'users'])->firstOrFail();
-        $task = $entry->task;
-        $user = $entry->user;
+            /** @var Project $project */
+            $project = $entry->project()->with(['tasks', 'users'])->firstOrFail();
+            $task = $entry->task;
+            $user = $entry->user;
 
-        $resolution = $this->rateResolver->resolveWithHours($project, $task, $user, $newHours);
+            $resolution = $this->rateResolver->resolveWithHours($project, $task, $user, $newHours);
 
-        $entry->update([
-            'hours' => $newHours,
-            'is_running' => false,
-            'timer_started_at' => null,
-            'is_billable' => $resolution->isBillable,
-            'billable_rate_snapshot' => $resolution->rateSnapshot,
-            'billable_amount' => $resolution->billableAmount,
-        ]);
+            $entry->update([
+                'hours' => $newHours,
+                'is_running' => false,
+                'timer_started_at' => null,
+                'is_billable' => $resolution->isBillable,
+                'billable_rate_snapshot' => $resolution->rateSnapshot,
+                'billable_amount' => $resolution->billableAmount,
+            ]);
+        });
     }
 
     public function currentHours(TimeEntry $entry, ?Carbon $now = null): float

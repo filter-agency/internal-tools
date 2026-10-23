@@ -332,3 +332,20 @@ it('rolls back an overridden write when its change log cannot be written', funct
     expect(TimeEntry::count())->toBe(1)
         ->and((float) $entry->fresh()->hours)->toBe(2.0);
 })->with(['create', 'update']);
+
+it('rolls back an overridden timer stop when its change log cannot be written', function () {
+    $entry = timesheetLockEntry($this->project, $this->task, $this->admin, '2026-07-10');
+    $lock = timesheetLockJuly($this->client);
+    // Locking refuses running timers, so start this one behind the observer's back.
+    TimeEntry::query()->whereKey($entry->id)->update(['is_running' => true, 'timer_started_at' => now()->subHour()]);
+    app(MonthLockService::class)->openOverride($lock, $this->admin, 'Correcting a mis-booked task');
+    $this->actingAs($this->admin);
+    MonthLockOverrideChange::creating(fn () => throw new RuntimeException('Log write failed'));
+
+    expect(fn () => app(TimeEntryService::class)->stopTimer($entry->fresh()))
+        ->toThrow(RuntimeException::class, 'Log write failed');
+
+    $fresh = $entry->fresh();
+    expect($fresh->is_running)->toBeTrue()
+        ->and((float) $fresh->hours)->toBe(2.0);
+});
