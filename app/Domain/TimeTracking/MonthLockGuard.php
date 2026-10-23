@@ -30,9 +30,10 @@ final class MonthLockGuard
     /**
      * Values kept in the override change log. is_running is logged so a timer
      * started under an override shows up, but it is only a locked write when a
-     * timer starts (see startsTimer()).
+     * timer starts (see startsTimer()). MonthLockOverrideChange::FIELD_LABELS
+     * labels each one, in this order.
      */
-    private const LOGGED_FIELDS = [...self::LOCKED_FIELDS, 'is_running'];
+    public const LOGGED_FIELDS = [...self::LOCKED_FIELDS, 'is_running'];
 
     /** @var array<int, int|null> project id => client id */
     private array $projectClients = [];

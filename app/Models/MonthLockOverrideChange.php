@@ -24,8 +24,8 @@ class MonthLockOverrideChange extends Model
 {
     public const UPDATED_AT = null;
 
-    /** Logged field => label, in display order. */
-    private const FIELD_LABELS = [
+    /** MonthLockGuard::LOGGED_FIELDS => label, in that order. */
+    public const FIELD_LABELS = [
         'user_id' => 'User',
         'project_id' => 'Project',
         'task_id' => 'Task',

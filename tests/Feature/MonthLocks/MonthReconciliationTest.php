@@ -1,6 +1,7 @@
 <?php
 
 use App\Domain\Reporting\MonthReconciliation;
+use App\Domain\TimeTracking\MonthLockGuard;
 use App\Domain\TimeTracking\MonthLockService;
 use App\Domain\TimeTracking\TimeEntryService;
 use App\Livewire\Reports\ReconciliationReport;
@@ -429,6 +430,10 @@ it('has no changed fields for a change that is not an update', function () {
 
     expect($created->changedFieldLabels())->toBe([])
         ->and($deleted->changedFieldLabels())->toBe([]);
+});
+
+it('labels every field the guard logs, in the same order', function () {
+    expect(array_keys(MonthLockOverrideChange::FIELD_LABELS))->toBe(MonthLockGuard::LOGGED_FIELDS);
 });
 
 it('defaults to the newest locked month and offers only locked months', function () {
