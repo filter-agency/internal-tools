@@ -290,6 +290,15 @@ class Index extends Component
                 ->get();
         }
 
+        $roleTitles = collect();
+        if ($this->editingId !== null) {
+            $roleTitles = User::query()
+                ->whereNotNull('role_title')
+                ->distinct()
+                ->orderBy('role_title')
+                ->pluck('role_title');
+        }
+
         $usersQuery = User::orderBy('archived_at')->orderBy('name');
 
         if (! $this->showArchived) {
@@ -311,6 +320,7 @@ class Index extends Component
             'users' => $usersQuery->with('rate')->get(),
             'roles' => Role::cases(),
             'managerCandidates' => $managerCandidates,
+            'roleTitles' => $roleTitles,
             'rates' => Rate::where('is_archived', false)->orderBy('name')->get(),
             'teams' => Team::active()->orderBy('name')->get(),
             'archivedCount' => $archivedCount,

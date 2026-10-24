@@ -138,7 +138,12 @@
 
                 <div class="mb-4">
                     <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Job Title</label>
-                    <input wire:model="editRoleTitle" type="text" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
+                    <input wire:model="editRoleTitle" type="text" list="role-titles" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
+                    <datalist id="role-titles">
+                        @foreach($roleTitles as $roleTitle)
+                            <option value="{{ $roleTitle }}">
+                        @endforeach
+                    </datalist>
                 </div>
 
                 <div class="mb-4">

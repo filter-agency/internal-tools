@@ -7,6 +7,7 @@ use App\Domain\TimeTracking\HoursFormatter;
 use App\Enums\Role;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -121,6 +122,26 @@ class User extends Authenticatable implements OAuthenticatable
             'email_notifications_enabled' => 'boolean',
             'slack_notifications_enabled' => 'boolean',
         ];
+    }
+
+    /**
+     * Trim a role title and collapse runs of whitespace to a single space.
+     * Blank titles become null.
+     */
+    public static function normaliseRoleTitle(?string $title): ?string
+    {
+        $title ??= '';
+        $normalised = trim(preg_replace('/\s+/u', ' ', $title) ?? $title);
+
+        return $normalised === '' ? null : $normalised;
+    }
+
+    /** @return Attribute<string|null, string|null> */
+    protected function roleTitle(): Attribute
+    {
+        return Attribute::make(
+            set: fn (?string $value): ?string => self::normaliseRoleTitle($value),
+        );
     }
 
     public function asanaConnected(): bool
