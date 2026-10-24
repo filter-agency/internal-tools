@@ -13,9 +13,14 @@ uses(RefreshDatabase::class);
 
 const EMPLOYEE_MATRIX_TEST_HEADER = ['First name', 'Surname', 'Join date', 'Status', 'Person type'];
 
+// Each test removes only the workbooks it wrote itself, so tests running side by side never delete each other's files.
 afterEach(function () {
-    foreach (glob(storage_path('framework/testing/employee-matrix-*.xlsx')) ?: [] as $file) {
-        unlink($file);
+    $GLOBALS['employeeMatrixFiles'] ??= [];
+
+    foreach (array_splice($GLOBALS['employeeMatrixFiles'], 0) as $file) {
+        if (is_file($file)) {
+            unlink($file);
+        }
     }
 });
 
@@ -87,6 +92,7 @@ function employeeMatrixWorkbook(array $people, ?array $header = null, int $month
 
     $path = storage_path('framework/testing/employee-matrix-'.uniqid().'.xlsx');
     (new Xlsx($spreadsheet))->save($path);
+    $GLOBALS['employeeMatrixFiles'][] = $path;
 
     return $path;
 }
@@ -506,3 +512,109 @@ it('accepts the first year label as a number or as text with apostrophes', funct
     'numeric cell' => ['2024'],
     'text with apostrophes' => ["'2024'"],
 ]);
+
+it('keeps a leave date that was corrected by hand in the same month', function () {
+    $jane = User::factory()->create(['name' => 'Jane Doe']);
+
+    $path = employeeMatrixWorkbook([
+        employeeMatrixPerson(['status' => 'Ex-employee', 'marks' => ['2026-06' => 'p']]),
+    ]);
+
+    employeeMatrixRun($path);
+    expect($jane->fresh()->left_on?->toDateString())->toBe('2026-06-30');
+
+    // HR confirms the real last day, which an admin enters by hand.
+    $jane->update(['left_on' => '2026-06-15']);
+
+    [, $output] = employeeMatrixRun($path);
+
+    expect($jane->fresh()->left_on?->toDateString())->toBe('2026-06-15')
+        ->and($output)->toContain('Updated: 0')
+        ->toContain('Already up to date: 1')
+        ->not->toContain('Approximated leave dates')
+        ->not->toContain('Leave date differs from the matrix');
+});
+
+it('does not replace a saved leave date from a different month and lists the person', function () {
+    $jane = User::factory()->create(['name' => 'Jane Doe', 'left_on' => '2026-02-28']);
+
+    $path = employeeMatrixWorkbook([
+        employeeMatrixPerson(['status' => 'Ex-employee', 'marks' => ['2026-06' => 'p']]),
+    ]);
+
+    [$exitCode, $output] = employeeMatrixRun($path);
+
+    $jane->refresh();
+    expect($exitCode)->toBe(0)
+        ->and($jane->left_on?->toDateString())->toBe('2026-02-28')
+        ->and($jane->started_on?->toDateString())->toBe('2025-03-10')
+        ->and($output)->toContain('Leave date differs from the matrix (not changed)')
+        ->toContain('Jane Doe: saved 2026-02-28, matrix marks Jun 2026')
+        ->not->toContain('Approximated leave dates');
+});
+
+it('only fills a leave date that is currently blank', function () {
+    $blank = User::factory()->create(['name' => 'Jane Doe']);
+    $saved = User::factory()->create(['name' => 'John Smith', 'left_on' => '2026-06-10']);
+
+    $path = employeeMatrixWorkbook([
+        employeeMatrixPerson(['status' => 'Ex-employee', 'marks' => ['2026-06' => 'p']]),
+        employeeMatrixPerson(['first' => 'John', 'surname' => 'Smith', 'status' => 'Ex-employee', 'marks' => ['2026-06' => 'p']]),
+    ]);
+
+    [, $output] = employeeMatrixRun($path);
+
+    expect($blank->fresh()->left_on?->toDateString())->toBe('2026-06-30')
+        ->and($saved->fresh()->left_on?->toDateString())->toBe('2026-06-10')
+        ->and($output)->toContain('Jane Doe: 2026-06-30 (end of Jun 2026)')
+        ->not->toContain('John Smith: 2026-06-30');
+});
+
+it('shows what each changed field was in the update table', function () {
+    $jane = User::factory()->create([
+        'name' => 'Jane Doe',
+        'started_on' => '2025-03-01',
+        'is_contractor' => false,
+    ]);
+    $john = User::factory()->create(['name' => 'John Smith', 'started_on' => '2025-03-10', 'is_contractor' => true]);
+    $newStarter = User::factory()->create(['name' => 'Ada Lovelace']);
+
+    $path = employeeMatrixWorkbook([
+        employeeMatrixPerson(['type' => 'Contractor']),
+        // Nothing about John changes except his leave date, which is blank.
+        employeeMatrixPerson(['first' => 'John', 'surname' => 'Smith', 'status' => 'Ex-employee', 'type' => 'Contractor', 'marks' => ['2026-06' => 'p']]),
+        employeeMatrixPerson(['first' => 'Ada', 'surname' => 'Lovelace', 'join' => new DateTimeImmutable('2025-05-01')]),
+    ]);
+
+    [, $output] = employeeMatrixRun($path, ['--dry-run' => true]);
+
+    expect($output)->toContain('2025-03-10 (was 2025-03-01)')
+        ->toContain('Contractor (was Employee)')
+        ->toContain('2026-06-30 (was blank)')
+        ->toContain('2025-05-01 (was blank)')
+        ->toContain('Would update: 3')
+        ->toContain('Dry run: nothing written.')
+        ->not->toContain('Updated:')
+        // An unchanged field shows just its value.
+        ->not->toContain('2025-03-10 (was 2025-03-10)')
+        ->and($jane->fresh()->started_on?->toDateString())->toBe('2025-03-01')
+        ->and($jane->fresh()->is_contractor)->toBeFalse()
+        ->and($john->fresh()->left_on)->toBeNull()
+        ->and($newStarter->fresh()->started_on)->toBeNull();
+});
+
+it('shows what changed on a real run too and says Updated', function () {
+    $jane = User::factory()->create(['name' => 'Jane Doe', 'started_on' => '2025-03-01', 'is_contractor' => false]);
+
+    $path = employeeMatrixWorkbook([employeeMatrixPerson(['type' => 'Contractor'])]);
+
+    [, $output] = employeeMatrixRun($path);
+
+    expect($output)->toContain('2025-03-10 (was 2025-03-01)')
+        ->toContain('Contractor (was Employee)')
+        ->toContain('Updated: 1')
+        ->not->toContain('Would update')
+        ->not->toContain('Dry run')
+        ->and($jane->fresh()->started_on?->toDateString())->toBe('2025-03-10')
+        ->and($jane->fresh()->is_contractor)->toBeTrue();
+});

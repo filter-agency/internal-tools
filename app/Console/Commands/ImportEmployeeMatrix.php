@@ -68,7 +68,7 @@ class ImportEmployeeMatrix extends Command
 
         $usersByName = $this->usersByName();
 
-        /** @var list<array{user: User, changes: array<string, mixed>}> $updates */
+        /** @var list<array{user: User, changes: array<string, mixed>, row: list<string>}> $updates */
         $updates = [];
         $upToDate = 0;
         $lists = [
@@ -76,6 +76,7 @@ class ImportEmployeeMatrix extends Command
             'ambiguous' => [],
             'duplicates' => [],
             'conflicts' => [],
+            'leaveDiffers' => [],
             'skipped' => [],
             'approximated' => [],
             'noLeaveMonth' => [],
@@ -157,11 +158,12 @@ class ImportEmployeeMatrix extends Command
             $leaveMarker = $this->lastLeaveMonth($row);
             $leaveOn = $isExEmployee ? $leaveMarker?->endOfMonth() : null;
 
-            // The leave that will stand after this run: the derived one, else the saved one.
+            // The matrix only marks a leave month, so its date is a guess that never replaces a saved one.
+            $savedLeave = $user->left_on?->toDateString();
             $startDate = $startedOn->toDateString();
-            $effectiveLeave = $leaveOn?->toDateString() ?? $user->left_on?->toDateString();
+            $effectiveLeave = $savedLeave ?? $leaveOn?->toDateString();
             if ($effectiveLeave !== null && $effectiveLeave < $startDate) {
-                $origin = $leaveOn !== null ? "end of {$leaveOn->format('M Y')}" : 'already saved';
+                $origin = $savedLeave !== null ? 'already saved' : "end of {$leaveOn?->format('M Y')}";
                 $lists['conflicts'][] = "{$user->name}: leave date {$effectiveLeave} ({$origin}) is before start date {$startDate}";
 
                 continue;
@@ -172,17 +174,20 @@ class ImportEmployeeMatrix extends Command
                 'is_contractor' => $isContractor,
             ];
 
-            if ($leaveOn !== null) {
+            if ($leaveOn !== null && $savedLeave === null) {
                 $changes['left_on'] = $leaveOn->toDateString();
                 $lists['approximated'][] = "{$user->name}: {$changes['left_on']} (end of {$leaveOn->format('M Y')})";
-            } elseif ($isExEmployee) {
+            } elseif ($leaveOn !== null && $savedLeave !== null && substr($savedLeave, 0, 7) !== $leaveOn->format('Y-m')) {
+                $lists['leaveDiffers'][] = "{$user->name}: saved {$savedLeave}, matrix marks {$leaveOn->format('M Y')}";
+            } elseif ($isExEmployee && $leaveOn === null) {
                 $lists['noLeaveMonth'][] = $user->name;
-            } elseif ($leaveMarker !== null) {
+            } elseif (! $isExEmployee && $leaveMarker !== null) {
                 $lists['currentWithLeaveMarker'][] = "{$user->name} (leave marker in {$leaveMarker->format('M Y')})";
             }
 
-            if ($this->wouldChange($user, $changes)) {
-                $updates[] = ['user' => $user, 'changes' => $changes];
+            $row = $this->tableRow($user, $changes);
+            if ($user->started_on?->toDateString() !== $startDate || $user->is_contractor !== $isContractor || isset($changes['left_on'])) {
+                $updates[] = ['user' => $user, 'changes' => $changes, 'row' => $row];
             } else {
                 $upToDate++;
             }
@@ -202,27 +207,18 @@ class ImportEmployeeMatrix extends Command
     }
 
     /**
-     * @param  list<array{user: User, changes: array<string, mixed>}>  $updates
-     * @param  array{unmatched: list<string>, ambiguous: list<string>, duplicates: list<string>, conflicts: list<string>, skipped: list<string>, approximated: list<string>, noLeaveMonth: list<string>, currentWithLeaveMarker: list<string>}  $lists
+     * @param  list<array{user: User, changes: array<string, mixed>, row: list<string>}>  $updates
+     * @param  array{unmatched: list<string>, ambiguous: list<string>, duplicates: list<string>, conflicts: list<string>, leaveDiffers: list<string>, skipped: list<string>, approximated: list<string>, noLeaveMonth: list<string>, currentWithLeaveMarker: list<string>}  $lists
      */
     private function report(array $updates, int $upToDate, array $lists): void
     {
         if ($updates !== []) {
-            $this->table(['Name', 'Start', 'Leave', 'Person type'], array_map(function (array $update): array {
-                $user = $update['user'];
-                $changes = $update['changes'];
-
-                return [
-                    $user->name,
-                    $changes['started_on'],
-                    $changes['left_on'] ?? $user->left_on?->toDateString() ?? '',
-                    $changes['is_contractor'] ? 'Contractor' : 'Employee',
-                ];
-            }, $updates));
+            $this->table(['Name', 'Start', 'Leave', 'Person type'], array_column($updates, 'row'));
         }
 
         $this->info(sprintf(
-            'Updated: %d. Already up to date: %d. Unmatched: %d. Ambiguous: %d. Listed more than once: %d. Leave before start: %d. Skipped rows: %d.',
+            '%s: %d. Already up to date: %d. Unmatched: %d. Ambiguous: %d. Listed more than once: %d. Leave before start: %d. Skipped rows: %d.',
+            $this->option('dry-run') ? 'Would update' : 'Updated',
             count($updates),
             $upToDate,
             count($lists['unmatched']),
@@ -236,6 +232,7 @@ class ImportEmployeeMatrix extends Command
         $this->section('Ambiguous matches (more than one user has that name, skipped)', $lists['ambiguous']);
         $this->section('Listed more than once (not updated)', $lists['duplicates']);
         $this->section('Leave date before start date (not updated)', $lists['conflicts']);
+        $this->section('Leave date differs from the matrix (not changed)', $lists['leaveDiffers']);
         $this->section('Skipped rows', $lists['skipped']);
         $this->section('Approximated leave dates (end of the last month marked p)', $lists['approximated']);
         $this->section('Warning: ex-employee with no leave month found (leave date left unchanged)', $lists['noLeaveMonth']);
@@ -302,14 +299,34 @@ class ImportEmployeeMatrix extends Command
         return $byName;
     }
 
-    /** @param  array<string, mixed>  $changes */
-    private function wouldChange(User $user, array $changes): bool
+    /**
+     * The update-table row, captured before the write so each changed field can say what it was.
+     *
+     * @param  array<string, mixed>  $changes
+     * @return list<string>
+     */
+    private function tableRow(User $user, array $changes): array
     {
-        if ($user->started_on?->toDateString() !== $changes['started_on'] || $user->is_contractor !== $changes['is_contractor']) {
-            return true;
-        }
+        $contractor = fn (bool $isContractor): string => $isContractor ? 'Contractor' : 'Employee';
 
-        return isset($changes['left_on']) && $user->left_on?->toDateString() !== $changes['left_on'];
+        return [
+            $user->name,
+            $this->withWas($changes['started_on'], $user->started_on?->toDateString()),
+            isset($changes['left_on'])
+                ? $this->withWas($changes['left_on'], null)
+                : ($user->left_on?->toDateString() ?? ''),
+            $this->withWas($contractor($changes['is_contractor']), $contractor($user->is_contractor)),
+        ];
+    }
+
+    /** "new (was old)" when the value changes, "new (was blank)" when it was empty, otherwise just the value. */
+    private function withWas(string $new, ?string $old): string
+    {
+        return match (true) {
+            $old === $new => $new,
+            $old === null => "{$new} (was blank)",
+            default => "{$new} (was {$old})",
+        };
     }
 
     /**
