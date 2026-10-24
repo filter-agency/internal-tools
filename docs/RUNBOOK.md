@@ -124,6 +124,9 @@ php artisan harvest:import /path/to/detailed-time.csv
 # Reconcile import against Harvest CSV
 php artisan harvest:reconcile /path/to/detailed-time.csv
 
+# Sync start dates, leave dates and employment type from Breathe HR (runs daily at 05:30; see below)
+php artisan breathe:sync-employees --dry-run
+
 # Import start dates, leave dates and person type from the HR Employee Matrix (see below)
 php artisan users:import-employee-matrix /tmp/employee-matrix.xlsx --dry-run
 
@@ -148,6 +151,22 @@ Notes:
 - The matrix only marks a leave month, so a leave date is filled in (as the last day of that month) only when the person has none. Saved leave dates are never overwritten. Correct the approximated dates listed in the output in Admin › Users.
 - Start date and person type always follow the sheet.
 - People are matched on full name, ignoring case. The command refuses a sheet whose month columns don't start at Feb 2024.
+
+### Breathe HR sync (start and leave dates)
+
+`breathe:sync-employees` runs every day at 05:30. It reads every employee from the Breathe HR API and copies **start date, leave date and employment type** onto the matching user. It went live on 24 Oct 2026, and 51 people are linked.
+
+- **Breathe is the source of truth.** Its values, blanks included, replace what is saved here. For anyone linked to Breathe, those three fields are read-only in Admin › Users ("Synced from Breathe HR"). Change them in Breathe and the next sync picks them up.
+- **Matching:** by work email, ignoring case. The first match stores `users.breathe_employee_id`, so a later email change doesn't break the link. For someone who left and rejoined, the record with the latest join date wins.
+- **Linking by hand:** if Breathe has a different email for someone (for example a personal address), either fix the email in Breathe, or set `breathe_employee_id` on the user to their Breathe ID. Chris Parsons, Gerhard Van Wyk and Mike Williams were linked by hand this way.
+- **Person type:** "Employee" or "Contractor" sets the contractor flag. Any other type leaves it unchanged and is reported.
+- **No auto-deactivation:** a passed leave date does not deactivate or archive anyone. Do that by hand.
+- **Alerts** go to `BREATHE_SYNC_ALERT_EMAIL` when the sync fails, a current Breathe employee has no account here, or a record is bad (leave date before join date, unknown person type). The same set of issues is emailed only once. A clean run resets this.
+- **Config** (`.env`): `BREATHE_API_KEY`, `BREATHE_BASE_URL` (production `https://api.breathehr.com/v1`, sandbox `https://api.sandbox.breathehr.info/v1`) and `BREATHE_SYNC_ALERT_EMAIL`. After changing them, run `php artisan config:cache`.
+- **Check by hand:** `sudo -u deploy -H php artisan breathe:sync-employees --dry-run` shows every change and every unmatched person without saving or emailing anything.
+- Breathe returns personal data (bank details, NI numbers). Only the fields above are stored, and failed responses are never logged.
+
+The Employee Matrix import below predates the Breathe sync. Don't use it for people linked to Breathe, because the next sync overwrites what it sets.
 
 ---
 
