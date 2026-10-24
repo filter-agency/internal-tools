@@ -1,11 +1,5 @@
 @use('App\Domain\TimeTracking\HoursFormatter')
 <div>
-    @include('livewire.reports.partials.header', [
-        'title' => $member->name,
-        'totals' => $totals,
-        'backLink' => route('reports.team'),
-    ])
-
     @php
         $memberDetails = array_filter([
             $position,
@@ -13,7 +7,13 @@
             $member->left_on ? 'Left '.$member->left_on->format('j M Y') : null,
         ]);
     @endphp
-    <p class="mb-4 text-sm text-gray-500" title="Position as at {{ $positionAsAt->format('j M Y') }}">{{ implode(' · ', $memberDetails) }}</p>
+    @include('livewire.reports.partials.header', [
+        'title' => $member->name,
+        'subtitle' => implode(' · ', $memberDetails),
+        'subtitleHint' => 'Position as at '.$positionAsAt->format('j M Y'),
+        'totals' => $totals,
+        'backLink' => route('reports.team'),
+    ])
 
     {{-- Group-by tabs --}}
     <div class="bg-white rounded-lg border border-gray-200 overflow-x-auto">

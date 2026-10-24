@@ -3,6 +3,7 @@
 use App\Enums\ContractPosition;
 use App\Livewire\Reports\TeamOverviewReport;
 use App\Livewire\Reports\TeamReport;
+use App\Livewire\Reports\TimeReport;
 use App\Models\TimeEntry;
 use App\Models\User;
 use App\Models\UserContractPosition;
@@ -142,4 +143,29 @@ test('team member page omits only the date that is not set', function () {
     teamPositionMember($member)
         ->assertSee('Developer · Started 3 Mar 2025')
         ->assertDontSee('Left');
+});
+
+test('team member page shows the position line directly under the member\'s name', function () {
+    $member = teamPositionUser(['name' => 'Kim Header', 'started_on' => '2025-03-03']);
+    teamPositionSet($member, ContractPosition::SeniorDeveloper, '2025-03-03');
+
+    $html = teamPositionMember($member)->html();
+
+    // Livewire adds <!--[if BLOCK]--> morph markers around @if, hence the optional comments.
+    expect($html)->toMatch(
+        '#<h1[^>]*>\s*Kim Header\s*</h1>\s*(?:<!--.*?-->\s*)*<p[^>]*data-report-subtitle[^>]*>\s*Senior Developer · Started 3 Mar 2025\s*</p>#s'
+    );
+});
+
+test('other reports using the shared header render no subtitle line', function () {
+    teamPositionUser(['name' => 'Lou Plain']);
+    test()->actingAs(User::factory()->admin()->create());
+
+    Livewire::test(TimeReport::class)
+        ->set('preset', 'custom')
+        ->set('from', '2026-07-01')
+        ->set('to', '2026-07-31')
+        ->assertDontSeeHtml('data-report-subtitle');
+
+    teamPositionOverview()->assertDontSeeHtml('data-report-subtitle');
 });
