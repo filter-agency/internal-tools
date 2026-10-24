@@ -153,3 +153,47 @@ test('cancelling the panel clears its validation errors', function () {
         ->assertHasNoErrors()
         ->assertSet('editingId', null);
 });
+
+test('Breathe-synced dates and employment type are shown read-only and survive a save', function () {
+    $admin = User::factory()->admin()->create();
+    $person = User::factory()->create([
+        'breathe_employee_id' => 41,
+        'breathe_synced_at' => '2026-10-24 05:30:00',
+        'started_on' => '2023-05-02',
+        'left_on' => null,
+        'is_contractor' => false,
+    ]);
+
+    Livewire::actingAs($admin)
+        ->test(Index::class)
+        ->call('edit', $person->id)
+        ->assertSet('editSyncedFromBreathe', true)
+        ->assertSee('Synced from Breathe HR, last checked 24 Oct 2026, 05:30')
+        ->assertSee('2 May 2023')
+        ->assertDontSeeHtml('wire:model="editStartedOn"')
+        ->set('editStartedOn', '2020-01-01')
+        ->set('editLeftOn', '2026-12-31')
+        ->set('editIsContractor', '1')
+        ->set('editRoleTitle', 'Designer')
+        ->call('save')
+        ->assertHasNoErrors();
+
+    $person->refresh();
+
+    expect($person->started_on?->toDateString())->toBe('2023-05-02')
+        ->and($person->left_on)->toBeNull()
+        ->and($person->is_contractor)->toBeFalse()
+        ->and($person->role_title)->toBe('Designer');
+});
+
+test('people not in Breathe keep editable dates', function () {
+    $admin = User::factory()->admin()->create();
+    $person = User::factory()->create();
+
+    Livewire::actingAs($admin)
+        ->test(Index::class)
+        ->call('edit', $person->id)
+        ->assertSet('editSyncedFromBreathe', false)
+        ->assertSeeHtml('wire:model="editStartedOn"')
+        ->assertDontSee('Synced from Breathe HR');
+});

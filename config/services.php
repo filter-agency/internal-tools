@@ -49,4 +49,10 @@ return [
         'sync_alert_email' => env('ASANA_SYNC_ALERT_EMAIL', 'paul@filteragency.com'),
     ],
 
+    'breathe' => [
+        'api_key' => env('BREATHE_API_KEY'),
+        'base_url' => env('BREATHE_BASE_URL'),
+        'sync_alert_email' => env('BREATHE_SYNC_ALERT_EMAIL', 'paul@filteragency.com'),
+    ],
+
 ];
