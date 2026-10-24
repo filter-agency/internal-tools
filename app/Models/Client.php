@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\ClientTaskBillabilityProfile;
 use Database\Factories\ClientFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -41,6 +42,19 @@ class Client extends Model
     public function usesJdwTaskDefaults(): bool
     {
         return $this->task_billability_profile === ClientTaskBillabilityProfile::Jdw;
+    }
+
+    /**
+     * Clients that are not archived and use the JDW task billability profile.
+     *
+     * @param  Builder<Client>  $query
+     * @return Builder<Client>
+     */
+    public function scopeActiveJdw(Builder $query): Builder
+    {
+        return $query
+            ->where('is_archived', false)
+            ->where('task_billability_profile', ClientTaskBillabilityProfile::Jdw);
     }
 
     public function reapplyTaskBillabilityToProjects(): void
