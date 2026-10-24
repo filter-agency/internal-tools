@@ -233,7 +233,8 @@ test('the edit panel lists contract positions newest first with an add form', fu
         ->test(Index::class)
         ->call('edit', $person->id)
         ->assertSeeInOrder([
-            'Contract position',
+            'JDW contract position',
+            'It can differ from their job title, and change while their employment dates stay the same.',
             'Senior Developer from 1 Aug 2026',
             'Outside contracted team from 1 Mar 2026',
         ])

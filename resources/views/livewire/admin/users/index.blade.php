@@ -239,7 +239,8 @@
                 </div>
 
                 <div class="border-t border-gray-100 pt-6 mt-6 mb-6">
-                    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Contract position</h3>
+                    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">JDW contract position</h3>
+                    <p class="text-xs text-gray-500 mb-1">Which of JDW's contracted positions this person fills. It can differ from their job title, and change while their employment dates stay the same.</p>
                     <p class="text-xs text-gray-500 mb-3">Changes here save straight away. Each position applies from its date until the next change.</p>
 
                     @if($contractPositions->isNotEmpty())
