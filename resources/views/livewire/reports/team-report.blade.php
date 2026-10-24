@@ -6,6 +6,15 @@
         'backLink' => route('reports.team'),
     ])
 
+    @php
+        $memberDetails = array_filter([
+            $position,
+            $member->started_on ? 'Started '.$member->started_on->format('j M Y') : null,
+            $member->left_on ? 'Left '.$member->left_on->format('j M Y') : null,
+        ]);
+    @endphp
+    <p class="mb-4 text-sm text-gray-500" title="Position as at {{ $positionAsAt->format('j M Y') }}">{{ implode(' · ', $memberDetails) }}</p>
+
     {{-- Group-by tabs --}}
     <div class="bg-white rounded-lg border border-gray-200 overflow-x-auto">
         <div class="flex border-b border-gray-200 px-4">

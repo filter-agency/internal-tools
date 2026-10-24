@@ -64,6 +64,12 @@ trait HasReportPeriod
         }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
+    /** The date contract positions are read at: the period end, or today when the period ends in the future. */
+    protected function contractPositionAsAt(): CarbonImmutable
+    {
+        return min(CarbonImmutable::parse($this->to), CarbonImmutable::today());
+    }
+
     protected function buildQuery(?int $userId = null, ?int $clientId = null, ?int $projectId = null): TimeReportQuery
     {
         return new TimeReportQuery(
