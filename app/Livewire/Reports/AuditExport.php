@@ -27,22 +27,33 @@ class AuditExport extends Component
 
         $this->from = $lastMonth->toDateString();
         $this->to = $lastMonth->endOfMonth()->toDateString();
-        $this->clientIds = Client::query()->activeJdw()->orderBy('name')->pluck('id')->all();
+        // Archived JDW clients stay in the default: their hours are part of any historical range.
+        $this->clientIds = Client::query()->jdw()->orderBy('name')->pluck('id')->all();
     }
 
     /**
-     * Errors show as the form is edited: download() is renderless, so a failure
-     * raised there would never reach the page.
+     * Errors show as the form is edited, one field at a time: download() is
+     * renderless, so a failure raised there would never reach the page.
      */
-    public function updated(): void
+    public function updated(string $property): void
     {
-        $this->validateForm();
+        $field = (string) str($property)->before('.');
+
+        $this->validateOnly($field);
+
+        // The range rule spans both dates, so moving one can invalidate the
+        // other. Check it too, unless it is still empty (that is not this edit's doing).
+        $other = ['from' => 'to', 'to' => 'from'][$field] ?? null;
+
+        if ($other !== null && $this->{$other} !== '') {
+            $this->validateOnly($other);
+        }
     }
 
     #[Renderless]
     public function download(): StreamedResponse
     {
-        $this->validateForm();
+        $this->validate();
 
         $export = new AuditTimeCsvExport(
             CarbonImmutable::parse($this->from),
@@ -60,28 +71,32 @@ class AuditExport extends Component
     public function render(): View
     {
         return view('livewire.reports.audit-export', [
-            'clients' => Client::query()->where('is_archived', false)->orderBy('name')->get(),
+            'clients' => Client::query()->orderBy('name')->get(),
         ]);
     }
 
-    private function validateForm(): void
+    /** @return array<string, array<int, string>> */
+    protected function rules(): array
     {
-        $this->validate(
-            [
-                'from' => ['required', 'date_format:Y-m-d'],
-                'to' => ['required', 'date_format:Y-m-d', 'after_or_equal:from'],
-                'clientIds' => ['required', 'array', 'min:1'],
-                'clientIds.*' => ['integer', 'exists:clients,id'],
-            ],
-            [
-                'from.required' => 'Enter a start date.',
-                'from.date_format' => 'Enter a valid start date.',
-                'to.required' => 'Enter an end date.',
-                'to.date_format' => 'Enter a valid end date.',
-                'to.after_or_equal' => 'The end date must be on or after the start date.',
-                'clientIds.required' => 'Pick at least one client.',
-                'clientIds.min' => 'Pick at least one client.',
-            ],
-        );
+        return [
+            'from' => ['required', 'date_format:Y-m-d'],
+            'to' => ['required', 'date_format:Y-m-d', 'after_or_equal:from'],
+            'clientIds' => ['required', 'array', 'min:1'],
+            'clientIds.*' => ['integer', 'exists:clients,id'],
+        ];
+    }
+
+    /** @return array<string, string> */
+    protected function messages(): array
+    {
+        return [
+            'from.required' => 'Enter a start date.',
+            'from.date_format' => 'Enter a valid start date.',
+            'to.required' => 'Enter an end date.',
+            'to.date_format' => 'Enter a valid end date.',
+            'to.after_or_equal' => 'The end date must be on or after the start date.',
+            'clientIds.required' => 'Pick at least one client.',
+            'clientIds.min' => 'Pick at least one client.',
+        ];
     }
 }

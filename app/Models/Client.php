@@ -45,16 +45,25 @@ class Client extends Model
     }
 
     /**
-     * Clients that are not archived and use the JDW task billability profile.
+     * Clients that use the JDW task billability profile, archived or not.
+     *
+     * @param  Builder<Client>  $query
+     * @return Builder<Client>
+     */
+    public function scopeJdw(Builder $query): Builder
+    {
+        return $query->where('task_billability_profile', ClientTaskBillabilityProfile::Jdw);
+    }
+
+    /**
+     * JDW clients that are not archived.
      *
      * @param  Builder<Client>  $query
      * @return Builder<Client>
      */
     public function scopeActiveJdw(Builder $query): Builder
     {
-        return $query
-            ->where('is_archived', false)
-            ->where('task_billability_profile', ClientTaskBillabilityProfile::Jdw);
+        return $query->jdw()->where('is_archived', false);
     }
 
     public function reapplyTaskBillabilityToProjects(): void

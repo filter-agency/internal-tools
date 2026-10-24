@@ -314,16 +314,16 @@ it('matches the time report totals by client for July 2026', function () {
     expect($audit)->toBe(['Agency Client' => 5.0, 'JDW Management' => 7.8, 'JDW Support & Maintenance' => 6.75]);
 });
 
-it('keeps the default clients to those the audit is for', function () {
+it('ticks every JDW client by default, archived or not, and no others', function () {
     $jdw = auditProject('JDW Projects', 'Programme');
-    $archived = auditProject('JDW Retired', 'Old');
-    $archived->client->update(['is_archived' => true]);
+    $archivedJdw = auditProject('JDW Retired', 'Old');
+    $archivedJdw->client->update(['is_archived' => true]);
     $agency = auditProject('Agency Client', 'Brochure');
     $agency->client->update(['task_billability_profile' => ClientTaskBillabilityProfile::Agency]);
 
     $test = Livewire::actingAs(User::factory()->admin()->create())->test(AuditExport::class);
 
-    expect(array_map('intval', $test->get('clientIds')))->toBe([$jdw->client_id]);
+    expect(array_map('intval', $test->get('clientIds')))->toBe([$jdw->client_id, $archivedJdw->client_id]);
 });
 
 it('is forbidden to standard users and open to managers and admins', function () {
@@ -339,18 +339,60 @@ it('is forbidden to standard users and open to managers and admins', function ()
     }
 });
 
-it('defaults to last month and lists active clients by name', function () {
+it('defaults to last month and lists every client by name, labelling archived ones', function () {
     $this->travelTo(CarbonImmutable::parse('2026-10-23 10:00:00'));
     auditProject('Zulu Client', 'One');
-    auditProject('Alpha Client', 'Two');
+    auditProject('Alpha Client', 'Two')->client->update(['task_billability_profile' => ClientTaskBillabilityProfile::Agency]);
     auditProject('Retired Client', 'Three')->client->update(['is_archived' => true]);
 
     Livewire::actingAs(User::factory()->admin()->create())
         ->test(AuditExport::class)
         ->assertSet('from', '2026-09-01')
         ->assertSet('to', '2026-09-30')
-        ->assertSeeInOrder(['Alpha Client', 'Zulu Client'])
-        ->assertDontSee('Retired Client');
+        ->assertSeeInOrder(['Alpha Client', 'Retired Client', '(archived)', 'Zulu Client'])
+        ->assertSeeHtml('value="'.Client::query()->where('name', 'Alpha Client')->value('id').'"');
+});
+
+it('lists a non-JDW client without ticking it, and ticks an archived JDW client', function () {
+    $archivedJdw = auditProject('JDW Retired', 'Old');
+    $archivedJdw->client->update(['is_archived' => true]);
+    $agency = auditProject('Agency Client', 'Brochure');
+    $agency->client->update(['task_billability_profile' => ClientTaskBillabilityProfile::Agency]);
+
+    $html = Livewire::actingAs(User::factory()->admin()->create())
+        ->test(AuditExport::class)
+        ->assertSee('Agency Client')
+        ->assertSee('JDW Retired')
+        ->html();
+
+    $checkbox = fn (Client $client): string => 'wire:model.live="clientIds" value="'.$client->id.'"';
+
+    expect($html)->toContain($checkbox($archivedJdw->client))->toContain($checkbox($agency->client));
+    expect(Livewire::actingAs(User::factory()->admin()->create())->test(AuditExport::class)->get('clientIds'))
+        ->toContain($archivedJdw->client_id)
+        ->not->toContain($agency->client_id);
+});
+
+it('exports an archived JDW client\'s hours with the default selection', function () {
+    $live = auditProject('JDW Management', 'Programme');
+    $archived = auditProject('JDW Retired', 'Old programme');
+    $archived->client->update(['is_archived' => true]);
+    $agency = auditProject('Agency Client', 'Brochure');
+    $agency->client->update(['task_billability_profile' => ClientTaskBillabilityProfile::Agency]);
+    $user = auditUser();
+    $task = auditTask();
+    auditEntry($user, $live, $task, '2026-07-06', 1.0);
+    auditEntry($user, $archived, $task, '2026-07-06', 2.0);
+    auditEntry($user, $agency, $task, '2026-07-06', 4.0);
+
+    $test = Livewire::actingAs(User::factory()->admin()->create())
+        ->test(AuditExport::class)
+        ->set('from', '2026-07-01')
+        ->set('to', '2026-07-31');
+    $rows = auditDataRows(auditStreamBody($test->instance()->download()));
+
+    expect(array_column($rows, 4))->toBe(['JDW Management', 'JDW Retired']);
+    expect(array_column($rows, 7))->toBe(['1.00', '2.00']);
 });
 
 it('defaults to the previous calendar month at the end of a long month', function () {
@@ -420,6 +462,42 @@ it('shows validation errors as soon as the form is edited', function () {
         ->set('to', '2026-06-01')
         ->assertSee('The end date must be on or after the start date.')
         ->set('to', '2026-07-31')
+        ->assertDontSee('The end date must be on or after the start date.')
         ->set('clientIds', [])
-        ->assertSee('Pick at least one client.');
+        ->assertSee('Pick at least one client.')
+        ->set('clientIds', [$client->id])
+        ->assertDontSee('Pick at least one client.');
+});
+
+it('only flags the field that was edited', function () {
+    $client = auditProject()->client;
+    $form = Livewire::actingAs(User::factory()->admin()->create())
+        ->test(AuditExport::class)
+        ->set(['from' => '2026-07-01', 'to' => '2026-07-31', 'clientIds' => [$client->id]]);
+
+    $form->set('from', '')
+        ->assertHasErrors(['from'])
+        ->assertHasNoErrors(['to', 'clientIds'])
+        ->set('from', '2026-07-01')
+        ->assertHasNoErrors()
+        ->set('to', '')
+        ->assertHasErrors(['to'])
+        ->assertHasNoErrors(['from', 'clientIds'])
+        ->set('to', '2026-07-31')
+        ->set('clientIds', [])
+        ->assertHasErrors(['clientIds'])
+        ->assertHasNoErrors(['from', 'to']);
+});
+
+it('flags the end date when the start date is moved past it, and clears it when moved back', function () {
+    $client = auditProject()->client;
+
+    Livewire::actingAs(User::factory()->admin()->create())
+        ->test(AuditExport::class)
+        ->set(['from' => '2026-07-01', 'to' => '2026-07-31', 'clientIds' => [$client->id]])
+        ->set('from', '2026-08-15')
+        ->assertHasErrors(['to'])
+        ->assertHasNoErrors(['from'])
+        ->set('from', '2026-07-15')
+        ->assertHasNoErrors(['from', 'to']);
 });

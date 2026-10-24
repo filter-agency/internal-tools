@@ -26,7 +26,7 @@
                 @foreach($clients as $client)
                     <label wire:key="client-{{ $client->id }}" class="flex items-center gap-2 text-sm text-gray-700">
                         <input type="checkbox" wire:model.live="clientIds" value="{{ $client->id }}" class="rounded">
-                        <span>{{ $client->name }}</span>
+                        <span>{{ $client->name }}@if($client->is_archived) <span class="text-xs text-gray-400">(archived)</span>@endif</span>
                     </label>
                 @endforeach
             </div>
