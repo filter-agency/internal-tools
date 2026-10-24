@@ -20,6 +20,9 @@ final class DetailedTimeCsvExport
      * Write the full CSV (headers + rows) to the given output stream.
      * Uses \r\n line endings per RFC 4180. No BOM.
      *
+     * Free-text cells go through CsvFormatter::text() so a spreadsheet never
+     * evaluates them as formulas; harvest:import strips that prefix again.
+     *
      * @param  resource  $handle  A writable stream (e.g. php://output or fopen())
      */
     public function writeTo(mixed $handle): void
@@ -44,27 +47,27 @@ final class DetailedTimeCsvExport
 
             $row = [
                 CsvFormatter::field($entry->spent_on->format('Y-m-d')),
-                CsvFormatter::field($client->name),
-                CsvFormatter::field($project->name),
-                CsvFormatter::field($project->code ?? ''),
-                CsvFormatter::field($task->name),
-                CsvFormatter::field($entry->notes ?? ''),
+                CsvFormatter::text($client->name),
+                CsvFormatter::text($project->name),
+                CsvFormatter::text($project->code ?? ''),
+                CsvFormatter::text($task->name),
+                CsvFormatter::text($entry->notes ?? ''),
                 HoursFormatter::asReportDecimal((float) $entry->hours),
                 $isBillable ? 'Yes' : 'No',
                 'No',
                 'No',
-                CsvFormatter::field($firstName),
-                CsvFormatter::field($lastName),
+                CsvFormatter::text($firstName),
+                CsvFormatter::text($lastName),
                 '',
-                CsvFormatter::field($user->role_title ?? ''),
+                CsvFormatter::text($user->role_title ?? ''),
                 ! $user->is_contractor ? 'Yes' : 'No',
                 CsvFormatter::hours($rate),
                 CsvFormatter::hours($amount),
                 '0.0',
                 '0.0',
                 'British Pound - GBP',
-                CsvFormatter::field($entry->external_reference ?? ''),
-                CsvFormatter::field($positions->labelOn($entry->user_id, $entry->spent_on)),
+                CsvFormatter::text($entry->external_reference ?? ''),
+                CsvFormatter::text($positions->labelOn($entry->user_id, $entry->spent_on)),
                 (string) $entry->id,
             ];
 

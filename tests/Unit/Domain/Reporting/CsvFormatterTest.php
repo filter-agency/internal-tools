@@ -22,6 +22,26 @@ it('leaves other text alone', function (string $value, string $expected) {
     'leading space' => [' =1', ' =1'],
 ]);
 
+it('strips the neutralising quote when reading text back', function (string $value, string $expected) {
+    expect(CsvFormatter::fromText($value))->toBe($expected);
+})->with([
+    'equals' => ["'=SUM(A1)", '=SUM(A1)'],
+    'minus' => ["'- fixed login", '- fixed login'],
+    'tab' => ["'\tcmd", "\tcmd"],
+    'apostrophe before ordinary text' => ["'quoted", "'quoted"],
+    'lone apostrophe' => ["'", "'"],
+    'plain value' => ['Plain value', 'Plain value'],
+    'empty string' => ['', ''],
+]);
+
+it('round-trips text through a CSV cell', function (string $original) {
+    $cell = str_getcsv(CsvFormatter::text($original), ',', '"', '')[0];
+
+    expect(CsvFormatter::fromText($cell))->toBe($original);
+})->with([
+    '=HYPERLINK("x")', '- bullet', '+Plus', '@user', 'Acme, Inc', 'Plain value',
+]);
+
 it('quotes neutralised text the same way as field()', function () {
     expect(CsvFormatter::text('=HYPERLINK("x")'))->toBe('"\'=HYPERLINK(""x"")"')
         ->and(CsvFormatter::text('=A,B'))->toBe('"\'=A,B"')

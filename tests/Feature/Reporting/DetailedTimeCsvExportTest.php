@@ -137,6 +137,32 @@ it('labels people with no contract position as outside the contracted team', fun
     expect($cols[21])->toBe('Outside contracted team');
 });
 
+it('neutralises spreadsheet formulas in free-text cells', function () {
+    $entry = makeExportEntry(['entry' => ['notes' => '- fixed login']]);
+    $entry->project->update(['name' => '+Plus']);
+    $entry->project->client->update(['name' => '=Acme']);
+
+    $csv = exportCsv();
+    $cols = str_getcsv(explode("\r\n", trim($csv))[1]);
+
+    expect($cols[1])->toBe("'=Acme")               // Client
+        ->and($cols[2])->toBe("'+Plus")             // Project
+        ->and($cols[5])->toBe("'- fixed login")     // Notes
+        ->and($cols[0])->toBe('2026-04-01')         // Date is generated, left alone
+        ->and($cols[6])->toBe('2.00')               // Hours
+        ->and($cols[22])->toBe((string) $entry->id) // Time Entry Id
+        ->and($cols)->toHaveCount(23);
+});
+
+it('quotes a neutralised formula note so it parses back intact', function () {
+    makeExportEntry(['entry' => ['notes' => '=HYPERLINK("x")']]);
+
+    $csv = exportCsv();
+
+    expect($csv)->toContain('"\'=HYPERLINK(""x"")"')
+        ->and(str_getcsv(explode("\r\n", trim($csv))[1])[5])->toBe('\'=HYPERLINK("x")');
+});
+
 it('outputs No for Billable? and zero rate/amount for non-billable entries', function () {
     makeExportEntry(['entry' => ['is_billable' => false, 'billable_rate_snapshot' => null, 'billable_amount' => 0.0]]);
     $csv = exportCsv();
