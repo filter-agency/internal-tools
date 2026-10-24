@@ -500,6 +500,30 @@ it('refuses to download an invalid request', function (array $set, string $error
     'no clients' => [['clientIds' => []], 'clientIds'],
 ]);
 
+it('shows the error when Download is pressed with no client ticked', function () {
+    // No JDW client exists, so nothing is ticked by default and no edit has run the live validation.
+    Client::factory()->create(['task_billability_profile' => ClientTaskBillabilityProfile::Agency]);
+
+    Livewire::actingAs(User::factory()->admin()->create())
+        ->test(AuditExport::class)
+        ->assertSet('clientIds', [])
+        ->assertDontSee('Pick at least one client.')
+        ->call('download')
+        ->assertSee('Pick at least one client.')
+        ->assertNoFileDownloaded();
+});
+
+it('shows the error when Download is pressed with the end before the start', function () {
+    $client = auditProject()->client;
+
+    Livewire::actingAs(User::factory()->admin()->create())
+        ->test(AuditExport::class)
+        ->set(['from' => '2026-07-31', 'to' => '2026-07-01', 'clientIds' => [$client->id]])
+        ->call('download')
+        ->assertSee('The end date must be on or after the start date.')
+        ->assertNoFileDownloaded();
+});
+
 it('accepts a one-day range', function () {
     $client = auditProject()->client;
 

@@ -7,7 +7,6 @@ use App\Models\Client;
 use Carbon\CarbonImmutable;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
-use Livewire\Attributes\Renderless;
 use Livewire\Component;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -31,10 +30,7 @@ class AuditExport extends Component
         $this->clientIds = Client::query()->jdw()->orderBy('name')->pluck('id')->all();
     }
 
-    /**
-     * Errors show as the form is edited, one field at a time: download() is
-     * renderless, so a failure raised there would never reach the page.
-     */
+    /** Errors show as the form is edited, one field at a time; download() re-checks the whole form. */
     public function updated(string $property): void
     {
         $field = (string) str($property)->before('.');
@@ -50,7 +46,6 @@ class AuditExport extends Component
         }
     }
 
-    #[Renderless]
     public function download(): StreamedResponse
     {
         $this->validate();
