@@ -226,6 +226,48 @@
                 </div>
 
                 <div class="border-t border-gray-100 pt-6 mt-6 mb-6">
+                    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Contract position</h3>
+                    <p class="text-xs text-gray-500 mb-3">Changes here save straight away. Each position applies from its date until the next change.</p>
+
+                    @if($contractPositions->isNotEmpty())
+                        <ul class="mb-3 divide-y divide-gray-100 rounded-md border border-gray-200">
+                            @foreach($contractPositions as $contractPosition)
+                                <li wire:key="contract-position-{{ $contractPosition->id }}" class="flex items-center justify-between gap-3 px-3 py-2 text-sm text-gray-700">
+                                    <span>{{ $contractPosition->position?->label() ?? \App\Enums\ContractPosition::OUTSIDE_LABEL }} from {{ $contractPosition->effective_from->format('j M Y') }}</span>
+                                    <button
+                                        type="button"
+                                        wire:click="removeContractPosition({{ $contractPosition->id }})"
+                                        wire:confirm="Remove this position change?"
+                                        class="shrink-0 text-sm text-red-600 hover:underline"
+                                    >Remove</button>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @else
+                        <p class="mb-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500">No positions recorded yet.</p>
+                    @endif
+
+                    <div class="space-y-2">
+                        <select wire:model="newPosition" aria-label="Position" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
+                            <option value="">{{ \App\Enums\ContractPosition::OUTSIDE_LABEL }}</option>
+                            @foreach($contractPositionOptions as $option)
+                                <option value="{{ $option->value }}">{{ $option->label() }}</option>
+                            @endforeach
+                        </select>
+                        <div class="flex items-center gap-2">
+                            <input wire:model="newPositionFrom" type="date" aria-label="Effective from" class="min-w-0 flex-1 border border-gray-300 rounded-md text-sm px-3 py-2">
+                            <button
+                                type="button"
+                                wire:click="addContractPosition"
+                                class="shrink-0 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                            >Add</button>
+                        </div>
+                    </div>
+                    @error('newPosition')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+                    @error('newPositionFrom')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+                </div>
+
+                <div class="border-t border-gray-100 pt-6 mt-6 mb-6">
                     <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Notifications & reporting line</h3>
 
                     <div class="mb-4">

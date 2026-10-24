@@ -47,6 +47,7 @@ use Laravel\Passport\HasApiTokens;
  * @property Collection<int, TimeEntry> $timeEntries
  * @property Collection<int, ScheduleAssignment> $scheduleAssignments
  * @property Collection<int, ScheduleTimeOff> $scheduleTimeOff
+ * @property Collection<int, UserContractPosition> $contractPositions
  * @property ?User $manager
  * @property Collection<int, User> $directReports
  */
@@ -200,6 +201,12 @@ class User extends Authenticatable implements OAuthenticatable
     public function scheduleTimeOff(): HasMany
     {
         return $this->hasMany(ScheduleTimeOff::class);
+    }
+
+    /** @return HasMany<UserContractPosition, $this> */
+    public function contractPositions(): HasMany
+    {
+        return $this->hasMany(UserContractPosition::class)->orderBy('effective_from');
     }
 
     /** @return HasMany<PersonalAccessToken, $this> */
