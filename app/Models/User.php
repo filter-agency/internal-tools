@@ -7,6 +7,7 @@ use App\Domain\TimeTracking\HoursFormatter;
 use App\Enums\Role;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -38,6 +39,8 @@ use Laravel\Passport\HasApiTokens;
  * @property bool $slack_notifications_enabled
  * @property int|null $reports_to_user_id
  * @property bool $is_active
+ * @property Carbon|null $started_on
+ * @property Carbon|null $left_on
  * @property Carbon|null $archived_at
  * @property array<int, int>|null $schedule_work_days
  * @property array<string, mixed>|null $schedule_preferences
@@ -46,6 +49,7 @@ use Laravel\Passport\HasApiTokens;
  * @property Collection<int, TimeEntry> $timeEntries
  * @property Collection<int, ScheduleAssignment> $scheduleAssignments
  * @property Collection<int, ScheduleTimeOff> $scheduleTimeOff
+ * @property Collection<int, UserContractPosition> $contractPositions
  * @property ?User $manager
  * @property Collection<int, User> $directReports
  */
@@ -81,6 +85,8 @@ class User extends Authenticatable implements OAuthenticatable
         'schedule_work_days',
         'schedule_preferences',
         'is_active',
+        'started_on',
+        'left_on',
         'archived_at',
         'last_login_at',
         'notifications_paused_until',
@@ -102,6 +108,8 @@ class User extends Authenticatable implements OAuthenticatable
             'role' => Role::class,
             'is_contractor' => 'boolean',
             'is_active' => 'boolean',
+            'started_on' => 'date',
+            'left_on' => 'date',
             'archived_at' => 'datetime',
             'default_hourly_rate' => Decimal::class.':2',
             'weekly_capacity_hours' => Decimal::class.':2',
@@ -121,6 +129,26 @@ class User extends Authenticatable implements OAuthenticatable
             'email_notifications_enabled' => 'boolean',
             'slack_notifications_enabled' => 'boolean',
         ];
+    }
+
+    /**
+     * Trim a role title and collapse runs of whitespace to a single space.
+     * Blank titles become null.
+     */
+    public static function normaliseRoleTitle(?string $title): ?string
+    {
+        $title ??= '';
+        $normalised = trim(preg_replace('/\s+/u', ' ', $title) ?? $title);
+
+        return $normalised === '' ? null : $normalised;
+    }
+
+    /** @return Attribute<string|null, string|null> */
+    protected function roleTitle(): Attribute
+    {
+        return Attribute::make(
+            set: fn (?string $value): ?string => self::normaliseRoleTitle($value),
+        );
     }
 
     public function asanaConnected(): bool
@@ -179,6 +207,12 @@ class User extends Authenticatable implements OAuthenticatable
     public function scheduleTimeOff(): HasMany
     {
         return $this->hasMany(ScheduleTimeOff::class);
+    }
+
+    /** @return HasMany<UserContractPosition, $this> */
+    public function contractPositions(): HasMany
+    {
+        return $this->hasMany(UserContractPosition::class)->orderBy('effective_from');
     }
 
     /** @return HasMany<PersonalAccessToken, $this> */

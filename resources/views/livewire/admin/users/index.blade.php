@@ -138,7 +138,12 @@
 
                 <div class="mb-4">
                     <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Job Title</label>
-                    <input wire:model="editRoleTitle" type="text" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
+                    <input wire:model="editRoleTitle" type="text" list="role-titles" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
+                    <datalist id="role-titles">
+                        @foreach($roleTitles as $roleTitle)
+                            <option value="{{ $roleTitle }}">
+                        @endforeach
+                    </datalist>
                 </div>
 
                 <div class="mb-4">
@@ -190,6 +195,19 @@
                     </select>
                 </div>
 
+                <div class="mb-4 grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Start date</label>
+                        <input wire:model="editStartedOn" type="date" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
+                        @error('editStartedOn')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Leave date</label>
+                        <input wire:model="editLeftOn" type="date" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
+                        @error('editLeftOn')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+                    </div>
+                </div>
+
                 <div class="mb-4">
                     <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Role / Rate</label>
                     <select wire:model="editRateId" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
@@ -218,6 +236,49 @@
                         @endforeach
                     </div>
                     @error('editScheduleWorkDays')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+                </div>
+
+                <div class="border-t border-gray-100 pt-6 mt-6 mb-6">
+                    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">JDW contract position</h3>
+                    <p class="text-xs text-gray-500 mb-1">Which of JDW's contracted positions this person fills. It can differ from their job title, and change while their employment dates stay the same.</p>
+                    <p class="text-xs text-gray-500 mb-3">Changes here save straight away. Each position applies from its date until the next change.</p>
+
+                    @if($contractPositions->isNotEmpty())
+                        <ul class="mb-3 divide-y divide-gray-100 rounded-md border border-gray-200">
+                            @foreach($contractPositions as $contractPosition)
+                                <li wire:key="contract-position-{{ $contractPosition->id }}" class="flex items-center justify-between gap-3 px-3 py-2 text-sm text-gray-700">
+                                    <span>{{ $contractPosition->position?->label() ?? \App\Enums\ContractPosition::OUTSIDE_LABEL }} from {{ $contractPosition->effective_from->format('j M Y') }}</span>
+                                    <button
+                                        type="button"
+                                        wire:click="removeContractPosition({{ $contractPosition->id }})"
+                                        wire:confirm="Remove this position change?"
+                                        class="shrink-0 text-sm text-red-600 hover:underline"
+                                    >Remove</button>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @else
+                        <p class="mb-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500">No positions recorded yet.</p>
+                    @endif
+
+                    <div class="space-y-2">
+                        <select wire:model="newPosition" aria-label="Position" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
+                            <option value="">{{ \App\Enums\ContractPosition::OUTSIDE_LABEL }}</option>
+                            @foreach($contractPositionOptions as $option)
+                                <option value="{{ $option->value }}">{{ $option->label() }}</option>
+                            @endforeach
+                        </select>
+                        <div class="flex items-center gap-2">
+                            <input wire:model="newPositionFrom" type="date" aria-label="Effective from" class="min-w-0 flex-1 border border-gray-300 rounded-md text-sm px-3 py-2">
+                            <button
+                                type="button"
+                                wire:click="addContractPosition"
+                                class="shrink-0 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                            >Add</button>
+                        </div>
+                    </div>
+                    @error('newPosition')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+                    @error('newPositionFrom')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
                 </div>
 
                 <div class="border-t border-gray-100 pt-6 mt-6 mb-6">
@@ -257,6 +318,10 @@
                         <p class="text-xs text-gray-500 mt-1">Resolved automatically by the nightly Slack sync.</p>
                     </div>
                 </div>
+
+                @if($errors->first('newPositionFrom') === \App\Livewire\Admin\Users\Index::UNADDED_POSITION_ERROR)
+                    <p class="text-red-600 text-xs mt-6 -mb-4" role="alert">{{ $errors->first('newPositionFrom') }}</p>
+                @endif
 
                 <div class="flex gap-2 mt-6">
                     <button wire:click="save" class="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">Save changes</button>

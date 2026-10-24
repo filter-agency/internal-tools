@@ -2,10 +2,12 @@
 
 namespace App\Livewire\Admin\Users;
 
+use App\Enums\ContractPosition;
 use App\Enums\Role;
 use App\Models\Rate;
 use App\Models\Team;
 use App\Models\User;
+use App\Models\UserContractPosition;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
@@ -17,6 +19,9 @@ use Livewire\Component;
 #[Layout('layouts.app')]
 class Index extends Component
 {
+    /** Shown when Save is pressed with a position change filled in but not added. */
+    public const UNADDED_POSITION_ERROR = 'Add this position change or clear its date before saving.';
+
     #[Url(except: '')]
     public string $search = '';
 
@@ -50,6 +55,10 @@ class Index extends Component
 
     public string $editIsContractor = '0';
 
+    public string $editStartedOn = '';
+
+    public string $editLeftOn = '';
+
     public ?int $editReportsToUserId = null;
 
     public string $editNotificationsPausedUntil = '';
@@ -59,6 +68,11 @@ class Index extends Component
     public bool $editSlackNotificationsEnabled = true;
 
     public ?string $editSlackUserId = null;
+
+    /** Add-position form in the edit panel; '' means outside the contracted team. */
+    public string $newPosition = '';
+
+    public string $newPositionFrom = '';
 
     public function edit(int $userId): void
     {
@@ -77,16 +91,27 @@ class Index extends Component
             ->all();
         $this->editTeamIds = $this->teamRowsFromIds($user->teams()->pluck('teams.id')->all());
         $this->editIsContractor = $user->is_contractor ? '1' : '0';
+        $this->editStartedOn = $user->started_on?->toDateString() ?? '';
+        $this->editLeftOn = $user->left_on?->toDateString() ?? '';
         $this->editReportsToUserId = $user->reports_to_user_id;
         $this->editNotificationsPausedUntil = $user->notifications_paused_until?->toDateString() ?? '';
         $this->editEmailNotificationsEnabled = $user->email_notifications_enabled;
         $this->editSlackNotificationsEnabled = $user->slack_notifications_enabled;
         $this->editSlackUserId = $user->slack_user_id;
+        $this->reset('newPosition', 'newPositionFrom');
+        $this->resetErrorBag();
     }
 
     public function save(): void
     {
         Gate::authorize('access-admin');
+
+        // The position form saves on its own button, so a filled-in date would be lost silently.
+        if ($this->newPositionFrom !== '') {
+            $this->addError('newPositionFrom', self::UNADDED_POSITION_ERROR);
+
+            return;
+        }
 
         $scheduleWorkDays = collect($this->editScheduleWorkDays)
             ->map(fn ($day) => (int) $day)
@@ -105,6 +130,12 @@ class Index extends Component
             'editScheduleWorkDays' => 'required|array|min:1',
             'editScheduleWorkDays.*' => 'integer|between:1,7',
             'editIsContractor' => 'boolean',
+            'editStartedOn' => 'nullable|date',
+            'editLeftOn' => array_filter([
+                'nullable',
+                'date',
+                $this->editStartedOn !== '' ? 'after_or_equal:editStartedOn' : null,
+            ]),
             'editTeamIds' => 'array',
             'editTeamIds.*' => [
                 'integer',
@@ -116,6 +147,8 @@ class Index extends Component
                 Rule::exists('users', 'id')->where(fn ($q) => $q->whereIn('role', [Role::Manager->value, Role::Admin->value])->where('is_active', true)),
             ],
             'editNotificationsPausedUntil' => 'nullable|date',
+        ], [
+            'editLeftOn.after_or_equal' => "The leave date can't be before the start date.",
         ]);
 
         if ((int) $this->editingId === auth()->id()) {
@@ -148,6 +181,8 @@ class Index extends Component
             'weekly_capacity_hours' => (float) $this->editWeeklyCapacity,
             'schedule_work_days' => $scheduleWorkDays,
             'is_contractor' => $this->editIsContractor === '1',
+            'started_on' => $this->editStartedOn !== '' ? $this->editStartedOn : null,
+            'left_on' => $this->editLeftOn !== '' ? $this->editLeftOn : null,
             'reports_to_user_id' => $this->editReportsToUserId,
             'notifications_paused_until' => $this->editNotificationsPausedUntil !== '' ? $this->editNotificationsPausedUntil : null,
             'email_notifications_enabled' => $this->editEmailNotificationsEnabled,
@@ -157,6 +192,51 @@ class Index extends Component
 
         $this->editingId = null;
         $this->editTeamIds = [''];
+    }
+
+    /** Saves straight away, independent of the main form's Save button. */
+    public function addContractPosition(): void
+    {
+        Gate::authorize('access-admin');
+
+        $this->newPosition = trim($this->newPosition);
+
+        $this->validate([
+            'newPosition' => ['nullable', Rule::enum(ContractPosition::class)],
+            'newPositionFrom' => ['required', 'date_format:Y-m-d', 'after_or_equal:2000-01-01'],
+        ], [
+            'newPositionFrom.after_or_equal' => 'Enter a date from 2000 onwards.',
+        ], [
+            'newPosition' => 'position',
+            'newPositionFrom' => 'effective date',
+        ]);
+
+        $user = User::findOrFail((int) $this->editingId);
+
+        // whereDate, not Rule::unique: SQLite stores date casts with a time part.
+        if ($user->contractPositions()->whereDate('effective_from', $this->newPositionFrom)->exists()) {
+            $this->addError('newPositionFrom', 'This person already has a position change on that date.');
+
+            return;
+        }
+
+        $user->contractPositions()->create([
+            'position' => ContractPosition::tryFrom($this->newPosition),
+            'effective_from' => $this->newPositionFrom,
+        ]);
+
+        $this->reset('newPosition', 'newPositionFrom');
+    }
+
+    public function removeContractPosition(int $id): void
+    {
+        Gate::authorize('access-admin');
+
+        // Scoped to the person being edited so another person's row id does nothing.
+        UserContractPosition::query()
+            ->where('user_id', (int) $this->editingId)
+            ->whereKey($id)
+            ->delete();
     }
 
     public function addEditTeamRow(): void
@@ -249,6 +329,7 @@ class Index extends Component
     {
         $this->editingId = null;
         $this->editTeamIds = [''];
+        $this->resetErrorBag();
     }
 
     /**
@@ -290,6 +371,23 @@ class Index extends Component
                 ->get();
         }
 
+        $roleTitles = collect();
+        if ($this->editingId !== null) {
+            $roleTitles = User::query()
+                ->whereNotNull('role_title')
+                ->distinct()
+                ->orderBy('role_title')
+                ->pluck('role_title');
+        }
+
+        $contractPositions = collect();
+        if ($this->editingId !== null) {
+            $contractPositions = UserContractPosition::query()
+                ->where('user_id', $this->editingId)
+                ->orderByDesc('effective_from')
+                ->get();
+        }
+
         $usersQuery = User::orderBy('archived_at')->orderBy('name');
 
         if (! $this->showArchived) {
@@ -311,6 +409,9 @@ class Index extends Component
             'users' => $usersQuery->with('rate')->get(),
             'roles' => Role::cases(),
             'managerCandidates' => $managerCandidates,
+            'roleTitles' => $roleTitles,
+            'contractPositions' => $contractPositions,
+            'contractPositionOptions' => ContractPosition::cases(),
             'rates' => Rate::where('is_archived', false)->orderBy('name')->get(),
             'teams' => Team::active()->orderBy('name')->get(),
             'archivedCount' => $archivedCount,
