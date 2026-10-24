@@ -124,12 +124,30 @@ php artisan harvest:import /path/to/detailed-time.csv
 # Reconcile import against Harvest CSV
 php artisan harvest:reconcile /path/to/detailed-time.csv
 
+# Import start dates, leave dates and person type from the HR Employee Matrix (see below)
+php artisan users:import-employee-matrix /tmp/employee-matrix.xlsx --dry-run
+
 # Seed the database (local only)
 php artisan db:seed
 
 # Clear all caches
 php artisan optimize:clear
 ```
+
+### Import start and leave dates (HR Employee Matrix)
+
+`users:import-employee-matrix` sets each person's start date, leave date and person type (employee or contractor) from HR's "Employee Matrix" spreadsheet. The file holds personal data, so keep it outside the web root and delete it afterwards.
+
+1. Copy the HR xlsx to the server outside the web root, for example `scp employee-matrix.xlsx deploy@<server>:/tmp/`.
+2. From the app directory, run it with `--dry-run` and review the output: `php artisan users:import-employee-matrix /tmp/employee-matrix.xlsx --dry-run`. Nothing is written. The table shows `new (was old)` for every field that would change. Read each section underneath: unmatched names, people listed more than once, leave dates before start dates, leave dates that differ from the matrix, skipped rows, and approximated leave dates.
+3. Run it for real, without `--dry-run`.
+4. Delete the file: `rm /tmp/employee-matrix.xlsx`.
+
+Notes:
+
+- The matrix only marks a leave month, so a leave date is filled in (as the last day of that month) only when the person has none. Saved leave dates are never overwritten. Correct the approximated dates listed in the output in Admin › Users.
+- Start date and person type always follow the sheet.
+- People are matched on full name, ignoring case. The command refuses a sheet whose month columns don't start at Feb 2024.
 
 ---
 
