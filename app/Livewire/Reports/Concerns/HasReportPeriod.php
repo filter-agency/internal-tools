@@ -22,7 +22,7 @@ trait HasReportPeriod
     #[Url(except: '')]
     public string $to = '';
 
-    public bool $showArchived = false;
+    public bool $showArchived = true;
 
     public function mountHasReportPeriod(): void
     {
@@ -91,6 +91,8 @@ trait HasReportPeriod
             }
         }
 
-        return 'detailed-time'.$scope.'-'.$this->from.'-to-'.$this->to.'.csv';
+        $archivedNote = $this->showArchived ? '' : '-excluding-archived';
+
+        return 'detailed-time'.$scope.'-'.$this->from.'-to-'.$this->to.$archivedNote.'.csv';
     }
 }

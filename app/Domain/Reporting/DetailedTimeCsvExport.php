@@ -11,6 +11,7 @@ final class DetailedTimeCsvExport
         'Billable?', 'Invoiced?', 'Approved?', 'First Name', 'Last Name',
         'Employee Id', 'Roles', 'Employee?', 'Billable Rate', 'Billable Amount',
         'Cost Rate', 'Cost Amount', 'Currency', 'External Reference URL',
+        'Contract Position', 'Time Entry Id',
     ];
 
     public function __construct(private readonly TimeReportQuery $query) {}
@@ -24,6 +25,8 @@ final class DetailedTimeCsvExport
     public function writeTo(mixed $handle): void
     {
         fwrite($handle, implode(',', self::HEADERS)."\r\n");
+
+        $positions = ContractPositionTimeline::load();
 
         foreach ($this->query->entries() as $entry) {
             $project = $entry->project;
@@ -61,6 +64,8 @@ final class DetailedTimeCsvExport
                 '0.0',
                 'British Pound - GBP',
                 CsvFormatter::field($entry->external_reference ?? ''),
+                CsvFormatter::field($positions->labelOn($entry->user_id, $entry->spent_on)),
+                (string) $entry->id,
             ];
 
             fwrite($handle, implode(',', $row)."\r\n");

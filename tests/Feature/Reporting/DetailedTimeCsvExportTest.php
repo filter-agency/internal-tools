@@ -3,11 +3,13 @@
 use App\Domain\Reporting\CsvFormatter;
 use App\Domain\Reporting\DetailedTimeCsvExport;
 use App\Domain\Reporting\TimeReportQuery;
+use App\Enums\ContractPosition;
 use App\Models\Client;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\TimeEntry;
 use App\Models\User;
+use App\Models\UserContractPosition;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
@@ -68,14 +70,19 @@ it('quotes fields containing double-quotes and escapes them', function () {
     expect(CsvFormatter::field('say "hello"'))->toBe('"say ""hello"""');
 });
 
-it('writes the correct 21 columns for a billable entry', function () {
-    makeExportEntry();
+it('writes the correct 23 columns for a billable entry', function () {
+    $entry = makeExportEntry();
+    UserContractPosition::create([
+        'user_id' => $entry->user_id,
+        'position' => ContractPosition::SeniorDeveloper,
+        'effective_from' => '2026-01-01',
+    ]);
     $csv = exportCsv();
     $rows = explode("\r\n", trim($csv));
     $dataRow = $rows[1];
     $cols = str_getcsv($dataRow);
 
-    expect($cols)->toHaveCount(21);
+    expect($cols)->toHaveCount(23);
     expect($cols[0])->toBe('2026-04-01');          // Date
     expect($cols[1])->toBe('Acme Corp');            // Client
     expect($cols[2])->toBe('Website Redesign');     // Project
@@ -96,6 +103,38 @@ it('writes the correct 21 columns for a billable entry', function () {
     expect($cols[18])->toBe('0.0');                 // Cost Amount
     expect($cols[19])->toBe('British Pound - GBP'); // Currency
     expect($cols[20])->toBe('10001');               // External Reference
+    expect($cols[21])->toBe('Senior Developer');    // Contract Position on the entry date
+    expect($cols[22])->toBe((string) $entry->id);   // Time Entry Id
+});
+
+it('labels each row with the contract position held on its own date', function () {
+    $entry = makeExportEntry(['entry' => ['spent_on' => '2026-04-10']]);
+    $later = TimeEntry::create([
+        'user_id' => $entry->user_id,
+        'project_id' => $entry->project_id,
+        'task_id' => $entry->task_id,
+        'spent_on' => '2026-04-20',
+        'hours' => 1.0,
+        'is_running' => false,
+        'is_billable' => true,
+        'billable_rate_snapshot' => 84.0,
+        'billable_amount' => 84.0,
+    ]);
+    UserContractPosition::create(['user_id' => $entry->user_id, 'position' => ContractPosition::Developer, 'effective_from' => '2026-01-01']);
+    UserContractPosition::create(['user_id' => $entry->user_id, 'position' => ContractPosition::SeniorDeveloper, 'effective_from' => '2026-04-15']);
+
+    $rows = array_map('str_getcsv', array_slice(explode("\r\n", trim(exportCsv())), 1));
+
+    expect($rows)->toHaveCount(2);
+    expect($rows[0][0])->toBe('2026-04-10')->and($rows[0][21])->toBe('Developer')->and($rows[0][22])->toBe((string) $entry->id);
+    expect($rows[1][0])->toBe('2026-04-20')->and($rows[1][21])->toBe('Senior Developer')->and($rows[1][22])->toBe((string) $later->id);
+});
+
+it('labels people with no contract position as outside the contracted team', function () {
+    makeExportEntry();
+    $cols = str_getcsv(explode("\r\n", trim(exportCsv()))[1]);
+
+    expect($cols[21])->toBe('Outside contracted team');
 });
 
 it('outputs No for Billable? and zero rate/amount for non-billable entries', function () {
