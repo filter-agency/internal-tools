@@ -19,6 +19,9 @@ use Livewire\Component;
 #[Layout('layouts.app')]
 class Index extends Component
 {
+    /** Shown when Save is pressed with a position change filled in but not added. */
+    public const UNADDED_POSITION_ERROR = 'Add this position change or clear its date before saving.';
+
     #[Url(except: '')]
     public string $search = '';
 
@@ -96,12 +99,19 @@ class Index extends Component
         $this->editSlackNotificationsEnabled = $user->slack_notifications_enabled;
         $this->editSlackUserId = $user->slack_user_id;
         $this->reset('newPosition', 'newPositionFrom');
-        $this->resetErrorBag(['newPosition', 'newPositionFrom']);
+        $this->resetErrorBag();
     }
 
     public function save(): void
     {
         Gate::authorize('access-admin');
+
+        // The position form saves on its own button, so a filled-in date would be lost silently.
+        if ($this->newPositionFrom !== '') {
+            $this->addError('newPositionFrom', self::UNADDED_POSITION_ERROR);
+
+            return;
+        }
 
         $scheduleWorkDays = collect($this->editScheduleWorkDays)
             ->map(fn ($day) => (int) $day)
@@ -189,10 +199,14 @@ class Index extends Component
     {
         Gate::authorize('access-admin');
 
+        $this->newPosition = trim($this->newPosition);
+
         $this->validate([
             'newPosition' => ['nullable', Rule::enum(ContractPosition::class)],
-            'newPositionFrom' => ['required', 'date_format:Y-m-d'],
-        ], attributes: [
+            'newPositionFrom' => ['required', 'date_format:Y-m-d', 'after_or_equal:2000-01-01'],
+        ], [
+            'newPositionFrom.after_or_equal' => 'Enter a date from 2000 onwards.',
+        ], [
             'newPosition' => 'position',
             'newPositionFrom' => 'effective date',
         ]);
@@ -207,7 +221,7 @@ class Index extends Component
         }
 
         $user->contractPositions()->create([
-            'position' => $this->newPosition === '' ? null : ContractPosition::from($this->newPosition),
+            'position' => ContractPosition::tryFrom($this->newPosition),
             'effective_from' => $this->newPositionFrom,
         ]);
 
@@ -315,6 +329,7 @@ class Index extends Component
     {
         $this->editingId = null;
         $this->editTeamIds = [''];
+        $this->resetErrorBag();
     }
 
     /**

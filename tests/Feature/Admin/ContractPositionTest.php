@@ -271,3 +271,95 @@ test('opening another persons panel clears a half-filled add form', function () 
         ->assertSet('newPositionFrom', '')
         ->assertHasNoErrors();
 });
+
+test('saving the panel refuses a position change that was filled in but not added', function () {
+    $admin = User::factory()->admin()->create();
+    $person = User::factory()->create(['role_title' => 'Developer']);
+
+    Livewire::actingAs($admin)
+        ->test(Index::class)
+        ->call('edit', $person->id)
+        ->set('editRoleTitle', 'Senior Developer')
+        ->set('newPosition', ContractPosition::Tester->value)
+        ->set('newPositionFrom', '2026-03-01')
+        ->call('save')
+        ->assertHasErrors(['newPositionFrom'])
+        ->assertSee('Add this position change or clear its date before saving.')
+        ->assertSet('editingId', $person->id);
+
+    expect(UserContractPosition::query()->count())->toBe(0)
+        ->and($person->fresh()->role_title)->toBe('Developer');
+});
+
+test('saving the panel works once the position date is added or cleared', function () {
+    $admin = User::factory()->admin()->create();
+    $person = User::factory()->create(['role_title' => 'Developer']);
+
+    Livewire::actingAs($admin)
+        ->test(Index::class)
+        ->call('edit', $person->id)
+        ->set('editRoleTitle', 'Senior Developer')
+        ->set('newPositionFrom', '2026-03-01')
+        ->call('save')
+        ->assertHasErrors(['newPositionFrom'])
+        ->set('newPositionFrom', '')
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertSet('editingId', null);
+
+    expect($person->fresh()->role_title)->toBe('Senior Developer');
+});
+
+test('a contract position date must be from 2000 onwards', function () {
+    $admin = User::factory()->admin()->create();
+    $person = User::factory()->create();
+
+    $component = Livewire::actingAs($admin)
+        ->test(Index::class)
+        ->call('edit', $person->id)
+        ->set('newPosition', ContractPosition::Tester->value)
+        ->set('newPositionFrom', '0205-01-01')
+        ->call('addContractPosition')
+        ->assertHasErrors(['newPositionFrom' => 'after_or_equal']);
+
+    expect($component->errors()->first('newPositionFrom'))->toBe('Enter a date from 2000 onwards.')
+        ->and(UserContractPosition::query()->count())->toBe(0);
+
+    $component
+        ->set('newPositionFrom', '2000-01-01')
+        ->call('addContractPosition')
+        ->assertHasNoErrors();
+
+    expect(UserContractPosition::query()->count())->toBe(1);
+});
+
+test('a whitespace-only position is treated as outside the contracted team', function () {
+    $admin = User::factory()->admin()->create();
+    $person = User::factory()->create();
+
+    Livewire::actingAs($admin)
+        ->test(Index::class)
+        ->call('edit', $person->id)
+        ->set('newPosition', '   ')
+        ->set('newPositionFrom', '2026-03-01')
+        ->call('addContractPosition')
+        ->assertHasNoErrors();
+
+    $row = UserContractPosition::query()->where('user_id', $person->id)->sole();
+    expect($row->position)->toBeNull();
+});
+
+test('a position value with stray spaces around it is still recognised', function () {
+    $admin = User::factory()->admin()->create();
+    $person = User::factory()->create();
+
+    Livewire::actingAs($admin)
+        ->test(Index::class)
+        ->call('edit', $person->id)
+        ->set('newPosition', ' tester ')
+        ->set('newPositionFrom', '2026-03-01')
+        ->call('addContractPosition')
+        ->assertHasNoErrors();
+
+    expect(UserContractPosition::query()->where('user_id', $person->id)->sole()->position)->toBe(ContractPosition::Tester);
+});

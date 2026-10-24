@@ -318,6 +318,10 @@
                     </div>
                 </div>
 
+                @if($errors->first('newPositionFrom') === \App\Livewire\Admin\Users\Index::UNADDED_POSITION_ERROR)
+                    <p class="text-red-600 text-xs mt-6 -mb-4" role="alert">{{ $errors->first('newPositionFrom') }}</p>
+                @endif
+
                 <div class="flex gap-2 mt-6">
                     <button wire:click="save" class="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">Save changes</button>
                     <button wire:click="cancel" class="px-4 py-2 bg-white border border-gray-300 text-sm rounded-md hover:bg-gray-50">Cancel</button>

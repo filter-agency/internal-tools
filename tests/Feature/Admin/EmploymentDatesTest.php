@@ -121,3 +121,35 @@ test('the date fields reject values that are not dates', function () {
 
     expect($person->fresh()->started_on)->toBeNull();
 });
+
+test('a validation error does not carry over to the next person opened', function () {
+    $admin = User::factory()->admin()->create();
+    $first = User::factory()->create();
+    $second = User::factory()->create();
+
+    Livewire::actingAs($admin)
+        ->test(Index::class)
+        ->call('edit', $first->id)
+        ->set('editStartedOn', '2025-03-10')
+        ->set('editLeftOn', '2025-03-09')
+        ->call('save')
+        ->assertHasErrors(['editLeftOn'])
+        ->call('edit', $second->id)
+        ->assertHasNoErrors();
+});
+
+test('cancelling the panel clears its validation errors', function () {
+    $admin = User::factory()->admin()->create();
+    $person = User::factory()->create();
+
+    Livewire::actingAs($admin)
+        ->test(Index::class)
+        ->call('edit', $person->id)
+        ->set('editStartedOn', '2025-03-10')
+        ->set('editLeftOn', '2025-03-09')
+        ->call('save')
+        ->assertHasErrors(['editLeftOn'])
+        ->call('cancel')
+        ->assertHasNoErrors()
+        ->assertSet('editingId', null);
+});
