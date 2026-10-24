@@ -182,6 +182,18 @@ it('quotes names that contain commas', function () {
     expect(auditDataRows($csv)[0][4])->toBe('Acme, Inc');
 });
 
+it('neutralises text that a spreadsheet would run as a formula', function () {
+    $project = auditProject('=Client', '=HYPERLINK("x")');
+    auditEntry(auditUser('@Alice Smith', '+Developer'), $project, auditTask('-Discovery'), '2026-07-06', 1.0);
+
+    $csv = auditCsv([$project->client_id]);
+
+    expect($csv)->toContain('\'@Alice Smith,\'+Developer,Outside contracted team,2026-07,\'=Client,"\'=HYPERLINK(""x"")",\'-Discovery,1.00');
+    expect(auditDataRows($csv)[0])->toBe([
+        "'@Alice Smith", "'+Developer", 'Outside contracted team', '2026-07', "'=Client", "'=HYPERLINK(\"x\")", "'-Discovery", '1.00',
+    ]);
+});
+
 it('never includes notes, rates or amounts', function () {
     $project = auditProject();
     auditEntry(auditUser(), $project, auditTask(), '2026-07-06', 2.0, [

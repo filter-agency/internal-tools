@@ -32,4 +32,18 @@ final class CsvFormatter
 
         return $value;
     }
+
+    /**
+     * Free text for a spreadsheet: a value that starts with a character Excel or
+     * Sheets treats as the start of a formula gets a leading single quote, so it is
+     * shown as text instead of being run. Then quoted as field() does.
+     */
+    public static function text(string $value): string
+    {
+        if ($value !== '' && str_contains("=+-@\t\r", $value[0])) {
+            $value = "'".$value;
+        }
+
+        return self::field($value);
+    }
 }

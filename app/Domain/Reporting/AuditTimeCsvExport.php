@@ -81,13 +81,13 @@ final class AuditTimeCsvExport
 
         foreach ($this->rows() as $row) {
             fwrite($handle, implode(',', [
-                CsvFormatter::field($row['Name']),
-                CsvFormatter::field($row['Filter role']),
-                CsvFormatter::field($row['Contract position']),
+                CsvFormatter::text($row['Name']),
+                CsvFormatter::text($row['Filter role']),
+                CsvFormatter::text($row['Contract position']),
                 $row['Month'],
-                CsvFormatter::field($row['Client']),
-                CsvFormatter::field($row['Project']),
-                CsvFormatter::field($row['Task']),
+                CsvFormatter::text($row['Client']),
+                CsvFormatter::text($row['Project']),
+                CsvFormatter::text($row['Task']),
                 HoursFormatter::asReportDecimal($row['Hours']),
             ])."\r\n");
         }
