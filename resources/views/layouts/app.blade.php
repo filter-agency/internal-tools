@@ -55,6 +55,7 @@
                         <a href="{{ route('reports.tasks') }}" wire:navigate.hover class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Tasks</a>
                         <a href="{{ route('reports.team') }}" wire:navigate.hover class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Team</a>
                         <a href="{{ route('reports.reconciliation') }}" wire:navigate.hover class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Reconciliation</a>
+                        <a href="{{ route('reports.audit-export') }}" wire:navigate.hover class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Audit export</a>
                     </div>
                 </div>
                 @endif
