@@ -41,6 +41,8 @@ use Laravel\Passport\HasApiTokens;
  * @property bool $is_active
  * @property Carbon|null $started_on
  * @property Carbon|null $left_on
+ * @property int|null $breathe_employee_id
+ * @property Carbon|null $breathe_synced_at
  * @property Carbon|null $archived_at
  * @property array<int, int>|null $schedule_work_days
  * @property array<string, mixed>|null $schedule_preferences
@@ -87,6 +89,8 @@ class User extends Authenticatable implements OAuthenticatable
         'is_active',
         'started_on',
         'left_on',
+        'breathe_employee_id',
+        'breathe_synced_at',
         'archived_at',
         'last_login_at',
         'notifications_paused_until',
@@ -110,6 +114,8 @@ class User extends Authenticatable implements OAuthenticatable
             'is_active' => 'boolean',
             'started_on' => 'date',
             'left_on' => 'date',
+            'breathe_employee_id' => 'integer',
+            'breathe_synced_at' => 'datetime',
             'archived_at' => 'datetime',
             'default_hourly_rate' => Decimal::class.':2',
             'weekly_capacity_hours' => Decimal::class.':2',
@@ -149,6 +155,12 @@ class User extends Authenticatable implements OAuthenticatable
         return Attribute::make(
             set: fn (?string $value): ?string => self::normaliseRoleTitle($value),
         );
+    }
+
+    /** Start date, leave date and employment type come from Breathe HR and are read-only here. */
+    public function isSyncedFromBreathe(): bool
+    {
+        return $this->breathe_employee_id !== null;
     }
 
     public function asanaConnected(): bool

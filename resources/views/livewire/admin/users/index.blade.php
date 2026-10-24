@@ -187,6 +187,27 @@
                     @error('editTeamIds.*')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
                 </div>
 
+                @if($editSyncedFromBreathe)
+                    <div class="mb-4" data-testid="breathe-employment">
+                        <div class="grid grid-cols-3 gap-3">
+                            <div>
+                                <p class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Employment Type</p>
+                                <p class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">{{ $editIsContractor === '1' ? 'Contractor' : 'Employee' }}</p>
+                            </div>
+                            <div>
+                                <p class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Start date</p>
+                                <p class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">{{ $editStartedOn !== '' ? \Illuminate\Support\Carbon::parse($editStartedOn)->format('j M Y') : '—' }}</p>
+                            </div>
+                            <div>
+                                <p class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Leave date</p>
+                                <p class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">{{ $editLeftOn !== '' ? \Illuminate\Support\Carbon::parse($editLeftOn)->format('j M Y') : '—' }}</p>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">
+                            Synced from Breathe HR{{ $editBreatheSyncedAt !== '' ? ', last checked '.$editBreatheSyncedAt : '' }}. Change these in Breathe.
+                        </p>
+                    </div>
+                @else
                 <div class="mb-4">
                     <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Employment Type</label>
                     <select wire:model="editIsContractor" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
@@ -207,6 +228,7 @@
                         @error('editLeftOn')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
                     </div>
                 </div>
+                @endif
 
                 <div class="mb-4">
                     <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Role / Rate</label>

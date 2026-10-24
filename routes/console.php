@@ -23,6 +23,11 @@ Schedule::command('asana:prune-logs')
     ->withoutOverlapping()
     ->onOneServer();
 
+Schedule::command('breathe:sync-employees')
+    ->dailyAt('05:30')
+    ->withoutOverlapping()
+    ->onOneServer();
+
 Schedule::command('app:check-budget-alerts')
     ->dailyAt('07:00')
     ->withoutOverlapping()

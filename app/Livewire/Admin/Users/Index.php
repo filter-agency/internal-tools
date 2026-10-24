@@ -59,6 +59,13 @@ class Index extends Component
 
     public string $editLeftOn = '';
 
+    /** Start date, leave date and employment type come from Breathe HR for this person. */
+    #[Locked]
+    public bool $editSyncedFromBreathe = false;
+
+    #[Locked]
+    public string $editBreatheSyncedAt = '';
+
     public ?int $editReportsToUserId = null;
 
     public string $editNotificationsPausedUntil = '';
@@ -93,6 +100,8 @@ class Index extends Component
         $this->editIsContractor = $user->is_contractor ? '1' : '0';
         $this->editStartedOn = $user->started_on?->toDateString() ?? '';
         $this->editLeftOn = $user->left_on?->toDateString() ?? '';
+        $this->editSyncedFromBreathe = $user->isSyncedFromBreathe();
+        $this->editBreatheSyncedAt = $user->breathe_synced_at?->format('j M Y, H:i') ?? '';
         $this->editReportsToUserId = $user->reports_to_user_id;
         $this->editNotificationsPausedUntil = $user->notifications_paused_until?->toDateString() ?? '';
         $this->editEmailNotificationsEnabled = $user->email_notifications_enabled;
@@ -174,15 +183,20 @@ class Index extends Component
         }
 
         $user = User::findOrFail((int) $this->editingId);
-        $user->update([
+
+        // Breathe HR owns these for synced people; its nightly sync would undo an edit anyway.
+        $employment = $user->isSyncedFromBreathe() ? [] : [
+            'is_contractor' => $this->editIsContractor === '1',
+            'started_on' => $this->editStartedOn !== '' ? $this->editStartedOn : null,
+            'left_on' => $this->editLeftOn !== '' ? $this->editLeftOn : null,
+        ];
+
+        $user->update($employment + [
             'role' => Role::from($this->editRole),
             'role_title' => $this->editRoleTitle ?: null,
             'rate_id' => $this->editRateId,
             'weekly_capacity_hours' => (float) $this->editWeeklyCapacity,
             'schedule_work_days' => $scheduleWorkDays,
-            'is_contractor' => $this->editIsContractor === '1',
-            'started_on' => $this->editStartedOn !== '' ? $this->editStartedOn : null,
-            'left_on' => $this->editLeftOn !== '' ? $this->editLeftOn : null,
             'reports_to_user_id' => $this->editReportsToUserId,
             'notifications_paused_until' => $this->editNotificationsPausedUntil !== '' ? $this->editNotificationsPausedUntil : null,
             'email_notifications_enabled' => $this->editEmailNotificationsEnabled,
