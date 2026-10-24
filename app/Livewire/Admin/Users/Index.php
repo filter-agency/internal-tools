@@ -52,6 +52,10 @@ class Index extends Component
 
     public string $editIsContractor = '0';
 
+    public string $editStartedOn = '';
+
+    public string $editLeftOn = '';
+
     public ?int $editReportsToUserId = null;
 
     public string $editNotificationsPausedUntil = '';
@@ -84,6 +88,8 @@ class Index extends Component
             ->all();
         $this->editTeamIds = $this->teamRowsFromIds($user->teams()->pluck('teams.id')->all());
         $this->editIsContractor = $user->is_contractor ? '1' : '0';
+        $this->editStartedOn = $user->started_on?->toDateString() ?? '';
+        $this->editLeftOn = $user->left_on?->toDateString() ?? '';
         $this->editReportsToUserId = $user->reports_to_user_id;
         $this->editNotificationsPausedUntil = $user->notifications_paused_until?->toDateString() ?? '';
         $this->editEmailNotificationsEnabled = $user->email_notifications_enabled;
@@ -114,6 +120,12 @@ class Index extends Component
             'editScheduleWorkDays' => 'required|array|min:1',
             'editScheduleWorkDays.*' => 'integer|between:1,7',
             'editIsContractor' => 'boolean',
+            'editStartedOn' => 'nullable|date',
+            'editLeftOn' => array_filter([
+                'nullable',
+                'date',
+                $this->editStartedOn !== '' ? 'after_or_equal:editStartedOn' : null,
+            ]),
             'editTeamIds' => 'array',
             'editTeamIds.*' => [
                 'integer',
@@ -125,6 +137,8 @@ class Index extends Component
                 Rule::exists('users', 'id')->where(fn ($q) => $q->whereIn('role', [Role::Manager->value, Role::Admin->value])->where('is_active', true)),
             ],
             'editNotificationsPausedUntil' => 'nullable|date',
+        ], [
+            'editLeftOn.after_or_equal' => "The leave date can't be before the start date.",
         ]);
 
         if ((int) $this->editingId === auth()->id()) {
@@ -157,6 +171,8 @@ class Index extends Component
             'weekly_capacity_hours' => (float) $this->editWeeklyCapacity,
             'schedule_work_days' => $scheduleWorkDays,
             'is_contractor' => $this->editIsContractor === '1',
+            'started_on' => $this->editStartedOn !== '' ? $this->editStartedOn : null,
+            'left_on' => $this->editLeftOn !== '' ? $this->editLeftOn : null,
             'reports_to_user_id' => $this->editReportsToUserId,
             'notifications_paused_until' => $this->editNotificationsPausedUntil !== '' ? $this->editNotificationsPausedUntil : null,
             'email_notifications_enabled' => $this->editEmailNotificationsEnabled,

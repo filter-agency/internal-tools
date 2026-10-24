@@ -195,6 +195,19 @@
                     </select>
                 </div>
 
+                <div class="mb-4 grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Start date</label>
+                        <input wire:model="editStartedOn" type="date" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
+                        @error('editStartedOn')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Leave date</label>
+                        <input wire:model="editLeftOn" type="date" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
+                        @error('editLeftOn')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+                    </div>
+                </div>
+
                 <div class="mb-4">
                     <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Role / Rate</label>
                     <select wire:model="editRateId" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">

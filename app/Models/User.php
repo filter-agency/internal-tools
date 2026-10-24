@@ -39,6 +39,8 @@ use Laravel\Passport\HasApiTokens;
  * @property bool $slack_notifications_enabled
  * @property int|null $reports_to_user_id
  * @property bool $is_active
+ * @property Carbon|null $started_on
+ * @property Carbon|null $left_on
  * @property Carbon|null $archived_at
  * @property array<int, int>|null $schedule_work_days
  * @property array<string, mixed>|null $schedule_preferences
@@ -83,6 +85,8 @@ class User extends Authenticatable implements OAuthenticatable
         'schedule_work_days',
         'schedule_preferences',
         'is_active',
+        'started_on',
+        'left_on',
         'archived_at',
         'last_login_at',
         'notifications_paused_until',
@@ -104,6 +108,8 @@ class User extends Authenticatable implements OAuthenticatable
             'role' => Role::class,
             'is_contractor' => 'boolean',
             'is_active' => 'boolean',
+            'started_on' => 'date',
+            'left_on' => 'date',
             'archived_at' => 'datetime',
             'default_hourly_rate' => Decimal::class.':2',
             'weekly_capacity_hours' => Decimal::class.':2',
