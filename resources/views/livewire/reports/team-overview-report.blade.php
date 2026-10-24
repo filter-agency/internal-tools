@@ -10,6 +10,7 @@
             <thead>
                 <tr class="text-xs text-gray-500 uppercase tracking-wide border-b border-gray-100">
                     <th class="text-left px-4 py-3 font-medium">Team member</th>
+                    <th class="text-left px-4 py-3 font-medium">Contract position</th>
                     <th class="text-right px-4 py-3 font-medium">Hours</th>
                     <th class="text-right px-4 py-3 font-medium">Billable hrs</th>
                     <th class="text-right px-4 py-3 font-medium">Billable %</th>
@@ -26,6 +27,7 @@
                 @endphp
                 <tr class="hover:bg-gray-50">
                     <td class="px-4 py-3 font-medium text-gray-900">{{ $row->label }}</td>
+                    <td class="px-4 py-3 text-xs text-gray-500">{{ $positions[$row->id] }}</td>
                     <td class="px-4 py-3 text-right tabular-nums">{{ HoursFormatter::asReportDecimal((float) $row->total_hours) }}</td>
                     <td class="px-4 py-3 text-right tabular-nums text-gray-500">{{ HoursFormatter::asReportDecimal((float) $row->billable_hours) }}</td>
                     <td class="px-4 py-3 text-right tabular-nums text-gray-500">{{ $billablePercent }}%</td>
@@ -45,6 +47,7 @@
             <tfoot class="border-t border-gray-200 bg-gray-50">
                 <tr class="text-sm font-semibold text-gray-900">
                     <td class="px-4 py-3">Total</td>
+                    <td></td>
                     <td class="px-4 py-3 text-right tabular-nums">{{ HoursFormatter::asReportDecimal((float) $totals->totalHours) }}</td>
                     <td class="px-4 py-3 text-right tabular-nums">{{ HoursFormatter::asReportDecimal((float) $totals->billableHours) }}</td>
                     <td class="px-4 py-3 text-right tabular-nums">{{ $totals->billablePercent }}%</td>

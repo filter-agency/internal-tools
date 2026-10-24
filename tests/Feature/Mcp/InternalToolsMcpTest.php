@@ -10,6 +10,7 @@ use App\Mcp\Tools\CreateProject;
 use App\Mcp\Tools\DeleteTimeEntry;
 use App\Mcp\Tools\ListProjects;
 use App\Mcp\Tools\LogTimeEntry;
+use App\Mcp\Tools\TimeReport;
 use App\Mcp\Tools\UpdateClient;
 use App\Mcp\Tools\UpdateProject;
 use App\Mcp\Tools\UpdateTimeEntry;
@@ -717,4 +718,38 @@ test('mcp updateProject re-applies task billability when the client changes', fu
         ->assertOk();
 
     expect((bool) $project->fresh()->tasks()->whereKey($task->id)->firstOrFail()->pivot->is_billable)->toBeTrue();
+});
+
+test('time report includes archived project hours in totals and groups', function () {
+    $admin = User::factory()->admin()->create();
+    $client = Client::factory()->create();
+    $active = Project::factory()->create(['client_id' => $client->id, 'name' => 'Live project']);
+    $archived = Project::factory()->create(['client_id' => $client->id, 'name' => 'Archived project', 'is_archived' => true]);
+    $task = Task::factory()->create();
+
+    foreach ([[$active, 1.0], [$archived, 2.0]] as [$project, $hours]) {
+        TimeEntry::create([
+            'user_id' => $admin->id,
+            'project_id' => $project->id,
+            'task_id' => $task->id,
+            'spent_on' => '2026-07-10',
+            'hours' => $hours,
+            'is_running' => false,
+            'is_billable' => true,
+            'billable_rate_snapshot' => 100.0,
+            'billable_amount' => $hours * 100,
+        ]);
+    }
+
+    InternalToolsServer::actingAs($admin, 'api')
+        ->tool(TimeReport::class, ['from' => '2026-07-01', 'to' => '2026-07-31', 'group_by' => 'project'])
+        ->assertOk()
+        ->assertStructuredContent(function ($json) {
+            $json->has('totals')->has('groups');
+
+            $report = $json->toArray();
+
+            expect((float) $report['totals']['total_hours'])->toBe(3.0)
+                ->and(collect($report['groups'])->pluck('label')->all())->toContain('Live project', 'Archived project');
+        });
 });

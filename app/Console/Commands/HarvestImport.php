@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Domain\Reporting\CsvFormatter;
 use App\Enums\ClientTaskBillabilityProfile;
 use App\Models\Client;
 use App\Models\Project;
@@ -109,6 +110,13 @@ class HarvestImport extends Command
             $hours, $billableStr, , , $firstName, $lastName, , $roleTitle, $employeeStr,
             $billableRate, $billableAmount, , , , $externalRefUrl
         ] = $row;
+
+        // Our own detailed export prefixes formula-like text with a quote
+        // (CsvFormatter::text()); drop it so a re-import restores the value.
+        [$clientName, $projectName, $projectCode, $taskName, $notes, $firstName, $lastName, $roleTitle, $externalRefUrl] = array_map(
+            CsvFormatter::fromText(...),
+            [$clientName, $projectName, $projectCode, $taskName, $notes, $firstName, $lastName, $roleTitle, $externalRefUrl],
+        );
 
         if ($since && Carbon::parse($date)->lt($since)) {
             return;

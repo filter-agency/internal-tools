@@ -13,7 +13,7 @@ use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[IsReadOnly]
-#[Description('Return time report totals and optional grouped rows for a date range.')]
+#[Description('Return time report totals and optional grouped rows for a date range. Includes time on archived projects.')]
 class TimeReport extends Tool
 {
     use InteractsWithInternalTools;

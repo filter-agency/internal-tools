@@ -21,6 +21,7 @@ use App\Livewire\Integrations\AsanaLogTime;
 use App\Livewire\Profile\ApiTokens as ProfileApiTokens;
 use App\Livewire\Profile\AsanaConnection as ProfileAsanaConnection;
 use App\Livewire\Profile\Preferences as ProfilePreferences;
+use App\Livewire\Reports\AuditExport;
 use App\Livewire\Reports\ClientDetail;
 use App\Livewire\Reports\ClientsReport;
 use App\Livewire\Reports\ProjectDetail;
@@ -116,6 +117,7 @@ Route::middleware('auth')->group(function () {
             ->name('projects.budget');
         Route::get('/tasks', TasksReport::class)->name('tasks');
         Route::get('/reconciliation', ReconciliationReport::class)->name('reconciliation');
+        Route::get('/audit-export', AuditExport::class)->name('audit-export');
         Route::get('/team', TeamOverviewReport::class)->name('team');
         Route::get('/team/{user}', TeamReport::class)->name('team.member');
     });

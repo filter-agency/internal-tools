@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Reports;
 
+use App\Domain\Reporting\ContractPositionTimeline;
 use App\Domain\Reporting\TotalsDto;
 use App\Enums\GroupBy;
 use App\Livewire\Reports\Concerns\HasReportPeriod;
@@ -41,9 +42,16 @@ class TeamOverviewReport extends Component
 
     public function render(): View
     {
+        $rows = $this->rows();
+        $timeline = ContractPositionTimeline::load();
+        $asAt = $this->contractPositionAsAt();
+
         return view('livewire.reports.team-overview-report', [
             'totals' => $this->totals(),
-            'rows' => $this->rows(),
+            'rows' => $rows,
+            'positions' => $rows->mapWithKeys(
+                fn (\stdClass $row): array => [$row->id => $timeline->labelOn((int) $row->id, $asAt)]
+            )->all(),
         ]);
     }
 }

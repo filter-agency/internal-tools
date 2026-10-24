@@ -1,11 +1,16 @@
 @use('App\Domain\TimeTracking\HoursFormatter')
-{{-- Report header: title, period selector, totals cards, filters. --}}
+{{-- Report header: title, period selector, totals cards, filters. Optional: $subtitle (small line under the title), $subtitleHint (its tooltip). --}}
 <div class="flex items-center justify-between mb-6">
     <div class="flex items-center gap-3">
         @isset($backLink)
         <a href="{{ $backLink }}" class="text-sm text-gray-500 hover:text-gray-700">← Reports</a>
         @endisset
-        <h1 class="text-xl font-semibold text-gray-900">{{ $title }}</h1>
+        <div>
+            <h1 class="text-xl font-semibold text-gray-900">{{ $title }}</h1>
+            @if(filled($subtitle ?? null))
+            <p data-report-subtitle class="mt-0.5 text-sm text-gray-500"@isset($subtitleHint) title="{{ $subtitleHint }}"@endisset>{{ $subtitle }}</p>
+            @endif
+        </div>
     </div>
 
     <div class="flex items-center gap-3">

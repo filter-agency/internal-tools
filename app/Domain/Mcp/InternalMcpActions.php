@@ -594,7 +594,6 @@ final class InternalMcpActions
             projectId: isset($validated['project_id']) ? (int) $validated['project_id'] : null,
             taskId: isset($validated['task_id']) ? (int) $validated['task_id'] : null,
             billableOnly: (bool) ($validated['billable_only'] ?? false),
-            activeProjectsOnly: true,
         );
 
         $totals = $query->totals();

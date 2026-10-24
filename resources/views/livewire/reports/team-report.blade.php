@@ -1,7 +1,16 @@
 @use('App\Domain\TimeTracking\HoursFormatter')
 <div>
+    @php
+        $memberDetails = array_filter([
+            $position,
+            $member->started_on ? 'Started '.$member->started_on->format('j M Y') : null,
+            $member->left_on ? 'Left '.$member->left_on->format('j M Y') : null,
+        ]);
+    @endphp
     @include('livewire.reports.partials.header', [
         'title' => $member->name,
+        'subtitle' => implode(' · ', $memberDetails),
+        'subtitleHint' => 'Position as at '.$positionAsAt->format('j M Y'),
         'totals' => $totals,
         'backLink' => route('reports.team'),
     ])

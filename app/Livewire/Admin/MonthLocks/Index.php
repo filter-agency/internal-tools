@@ -3,7 +3,6 @@
 namespace App\Livewire\Admin\MonthLocks;
 
 use App\Domain\TimeTracking\MonthLockService;
-use App\Enums\ClientTaskBillabilityProfile;
 use App\Models\Client;
 use App\Models\MonthLock;
 use App\Models\MonthLockOverride;
@@ -43,8 +42,7 @@ class Index extends Component
         $this->month = $today->startOfMonth()->subMonth()->format('Y-m');
         $this->issuedOn = $today->toDateString();
         $this->clientIds = Client::query()
-            ->where('is_archived', false)
-            ->where('task_billability_profile', ClientTaskBillabilityProfile::Jdw)
+            ->activeJdw()
             ->orderBy('name')
             ->pluck('id')
             ->all();
