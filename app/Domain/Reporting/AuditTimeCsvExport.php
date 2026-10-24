@@ -25,7 +25,8 @@ final class AuditTimeCsvExport
     ) {}
 
     /**
-     * Sorted by name, month, client, project and task, ignoring case.
+     * Sorted by name, month, client, project and task in byte order, as the October
+     * sheet is (capitals before lower case). Rows that add up to 0.00 hours are dropped.
      *
      * @return Collection<int, array{Name: string, 'Filter role': string, 'Contract position': string, Month: string, Client: string, Project: string, Task: string, Hours: float}>
      */
@@ -65,6 +66,7 @@ final class AuditTimeCsvExport
 
                 return $row;
             })
+            ->reject(fn (array $row): bool => $row['Hours'] === 0.0)
             ->sort(fn (array $a, array $b): int => $this->compare($a, $b))
             ->values();
     }
@@ -156,7 +158,7 @@ final class AuditTimeCsvExport
     private function compare(array $a, array $b): int
     {
         foreach (['Name', 'Month', 'Client', 'Project', 'Task', 'Filter role', 'Contract position'] as $column) {
-            $order = strcasecmp($a[$column], $b[$column]);
+            $order = strcmp($a[$column], $b[$column]);
 
             if ($order !== 0) {
                 return $order;

@@ -210,7 +210,7 @@ it('never includes notes, rates or amounts', function () {
         ->not->toContain('168.0');
 });
 
-it('sorts by name, month, client, project and task ignoring case', function () {
+it('sorts by name, month, client, project and task in byte order', function () {
     $zed = auditUser('zed Young');
     $amy = auditUser('Amy Adams');
     $bob = auditUser('bob Brown');
@@ -227,15 +227,59 @@ it('sorts by name, month, client, project and task ignoring case', function () {
 
     $rows = auditDataRows(auditCsv([$a->client_id, $b->client_id], '2026-07-01', '2026-08-31'));
 
+    // Capitals sort before lower case, as in the October sheet.
     expect(array_map(fn (array $row): string => implode('|', [$row[0], $row[3], $row[4], $row[5], $row[6]]), $rows))->toBe([
-        'Amy Adams|2026-07|alpha Client|yankee|Development',
-        'Amy Adams|2026-07|alpha Client|Zulu|Development',
-        'Amy Adams|2026-07|Beta Client|Alpha|analysis',
         'Amy Adams|2026-07|Beta Client|Alpha|Development',
+        'Amy Adams|2026-07|Beta Client|Alpha|analysis',
+        'Amy Adams|2026-07|alpha Client|Zulu|Development',
+        'Amy Adams|2026-07|alpha Client|yankee|Development',
         'Amy Adams|2026-08|Beta Client|Alpha|Development',
         'bob Brown|2026-07|Beta Client|Alpha|Development',
         'zed Young|2026-07|Beta Client|Alpha|Development',
     ]);
+});
+
+it('sorts myIntegration after Suggested Rotas', function () {
+    $user = auditUser();
+    $task = auditTask();
+    $mine = auditProject('JDW Management', 'myIntegration');
+    $rotas = auditProject('JDW Management', 'Suggested Rotas');
+    auditEntry($user, $mine, $task, '2026-07-02', 1.0);
+    auditEntry($user, $rotas, $task, '2026-07-02', 1.0);
+
+    expect(array_column(auditDataRows(auditCsv([$mine->client_id])), 5))->toBe(['Suggested Rotas', 'myIntegration']);
+});
+
+it('breaks ties on filter role and position so the order never varies', function () {
+    $user = auditUser('Alice Smith', 'Developer');
+    auditPosition($user, ContractPosition::Developer, '2026-01-01');
+    auditPosition($user, ContractPosition::SeniorDeveloper, '2026-07-16');
+    $project = auditProject();
+    // Booked newest first, so insertion order cannot be what produces the result.
+    auditEntry($user, $project, auditTask(), '2026-07-20', 1.0);
+    auditEntry($user, $project, auditTask(), '2026-07-10', 1.0);
+
+    expect(array_column(auditDataRows(auditCsv([$project->client_id])), 2))->toBe(['Developer', 'Senior Developer']);
+});
+
+it('writes no rows for entries that add up to nothing', function () {
+    $user = auditUser();
+    $project = auditProject();
+    auditEntry($user, $project, auditTask('Idle'), '2026-07-06', 0.0);
+    auditEntry($user, $project, auditTask('Development'), '2026-07-06', 0.0);
+    auditEntry($user, $project, auditTask('Development'), '2026-07-07', 2.0);
+
+    $rows = auditDataRows(auditCsv([$project->client_id]));
+
+    expect(array_column($rows, 6))->toBe(['Development']);
+    expect(array_column($rows, 7))->toBe(['2.00']);
+});
+
+it('writes no rows for a client whose only entries are zero hours', function () {
+    $project = auditProject();
+    auditEntry(auditUser(), $project, auditTask(), '2026-07-06', 0.0);
+
+    expect(auditCsv([$project->client_id]))->toBe(AUDIT_HEADER."\r\n");
 });
 
 it('includes the first and last day of the range and nothing outside it', function () {
@@ -299,6 +343,8 @@ it('matches the time report totals by client for July 2026', function () {
         [$bob, $managementArchived, $design, '2026-07-08', 0.25],
         [$bob, $support, $dev, '2026-07-31', 6.0],
         [$bob, $agency, $dev, '2026-07-10', 5.0],
+        // Booked but zero: adds nothing to the report, so the audit drops it.
+        [$bob, $support, $design, '2026-07-02', 0.0],
         // Outside the range: must not be counted on either side.
         [$alice, $management, $dev, '2026-06-30', 7.0],
         [$bob, $support, $dev, '2026-08-01', 9.0],
