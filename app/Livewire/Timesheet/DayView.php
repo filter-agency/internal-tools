@@ -6,6 +6,7 @@ use App\Domain\TimeTracking\AsanaProjectAssociationService;
 use App\Domain\TimeTracking\CalendarEventAssociationService;
 use App\Domain\TimeTracking\HoursFormatter;
 use App\Domain\TimeTracking\HoursParser;
+use App\Domain\TimeTracking\MonthLockGuard;
 use App\Domain\TimeTracking\TimeEntryService;
 use App\Models\AsanaTask;
 use App\Models\Project;
@@ -52,6 +53,12 @@ class DayView extends Component
 
     // Entry form fields
     public string $hoursInput = '';
+
+    // The hoursInput openEditModal() filled in. Saving with it unchanged keeps
+    // the entry's stored hours, because h:mm does not always parse back to
+    // them (1.09h shows as 1:05, which parses as 1.08h).
+    #[Locked]
+    public string $editingHoursInput = '';
 
     public string $notes = '';
 
@@ -257,6 +264,7 @@ class DayView extends Component
         $this->selectedTaskId = $entry->task_id;
         $this->selectedAsanaTaskGid = $entry->asana_task_gid ?? '';
         $this->hoursInput = HoursFormatter::format((float) $entry->hours, $this->currentHoursFormat());
+        $this->editingHoursInput = $this->hoursInput;
         $this->notes = $entry->notes ?? '';
         $this->entryDate = $entry->spent_on->toDateString();
         $this->lastCalendarPullTitle = $this->calendarTitleForEntry($entry);
@@ -394,6 +402,9 @@ class DayView extends Component
         if ($isEdit && $this->editingEntryId !== null) {
             $entry = $this->guardEntry($this->editingEntryId);
             if ($entry) {
+                if (trim($this->hoursInput) === $this->editingHoursInput) {
+                    $data['hours'] = (float) $entry->hours;
+                }
                 $service->update($entry, $data);
                 $saved = true;
             }
@@ -747,6 +758,12 @@ class DayView extends Component
 
         $dayTotal = array_sum($entryDisplayHours);
 
+        // Locked client-months this week that the signed-in viewer cannot
+        // change. A display hint only: the month lock observer still enforces.
+        /** @var User|null $viewer */
+        $viewer = auth()->user();
+        $lockedClientMonths = app(MonthLockGuard::class)->lockedClientMonthsFor($viewer, $weekStart, $weekStart->addDays(6));
+
         /** @var array<int, array{id: int, code: string, name: string, display_name: string, client_name: string, asana_project_gids: array<int, string>, asana_task_match_terms: array<int, string>, asana_task_required: bool, tasks: array<int, array{id: int, name: string, colour: string, is_billable: bool}>}> $projectsForPicker */
         $projectsForPicker = Cache::remember(
             "projects_picker_{$user->id}",
@@ -840,6 +857,7 @@ class DayView extends Component
             'weekTotal' => $weekTotal,
             'dayEntries' => $dayEntries,
             'entryDisplayHours' => $entryDisplayHours,
+            'lockedClientMonths' => $lockedClientMonths,
             'dayTotal' => $dayTotal,
             'canCopyFromPrior' => $canCopyFromPrior,
             'projectsForPicker' => $projectsForPicker,
@@ -860,6 +878,7 @@ class DayView extends Component
         $this->selectedTaskId = null;
         $this->selectedAsanaTaskGid = '';
         $this->hoursInput = '';
+        $this->editingHoursInput = '';
         $this->notes = '';
         $this->hoursError = '';
         $this->entryDate = $this->selectedDate;

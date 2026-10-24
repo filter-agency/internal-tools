@@ -85,6 +85,31 @@ test('saving an unchanged summed week cell keeps the existing total', function (
     expect((float) TimeEntry::whereDate('spent_on', $monday)->sum('hours'))->toBe(1.5);
 });
 
+test('saving the week leaves an untouched cell whose h:mm value does not round-trip', function () {
+    [$user, $project, $task] = weekViewSetup();
+    $this->actingAs($user);
+
+    // 1.09h shows as 1:05, which parses back as 1.08h.
+    $monday = now()->startOfWeek()->toDateString();
+    $wednesday = now()->startOfWeek()->addDays(2)->toDateString();
+    $entry = app(TimeEntryService::class)->create($user, [
+        'project_id' => $project->id,
+        'task_id' => $task->id,
+        'spent_on' => $monday,
+        'hours' => 1.09,
+        'notes' => null,
+    ]);
+
+    $rowKey = weekViewRowKey($project, $task);
+    Livewire::test(WeekView::class)
+        ->assertSet("cellValues.{$rowKey}.0", '1:05')
+        ->set("cellValues.{$rowKey}.2", '2:00')
+        ->call('save');
+
+    expect((float) $entry->fresh()->hours)->toBe(1.09)
+        ->and((float) TimeEntry::whereDate('spent_on', $wednesday)->sole()->hours)->toBe(2.0);
+});
+
 test('save creates new entries from filled cells', function () {
     [$user, $project, $task] = weekViewSetup();
     $this->actingAs($user);

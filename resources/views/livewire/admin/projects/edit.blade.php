@@ -29,6 +29,7 @@
                                     <option value="{{ $client->id }}">{{ $client->name }}</option>
                                 @endforeach
                             </select>
+                            @error('client_id')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Project manager / Account lead</label>

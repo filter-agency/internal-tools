@@ -7,6 +7,7 @@ use App\Http\Controllers\Integrations\AsanaTimerStatusController;
 use App\Http\Controllers\Mcp\PendingActionController as McpPendingActionController;
 use App\Livewire\Admin\Clients\Index as AdminClients;
 use App\Livewire\Admin\Integrations\AsanaSettings as AdminAsanaSettings;
+use App\Livewire\Admin\MonthLocks\Index as AdminMonthLocks;
 use App\Livewire\Admin\Notifications\Index as AdminNotifications;
 use App\Livewire\Admin\Projects\Edit as AdminProjectEdit;
 use App\Livewire\Admin\Projects\Index as AdminProjects;
@@ -24,6 +25,7 @@ use App\Livewire\Reports\ClientDetail;
 use App\Livewire\Reports\ClientsReport;
 use App\Livewire\Reports\ProjectDetail;
 use App\Livewire\Reports\ProjectsReport;
+use App\Livewire\Reports\ReconciliationReport;
 use App\Livewire\Reports\TasksReport;
 use App\Livewire\Reports\TeamOverviewReport;
 use App\Livewire\Reports\TeamReport;
@@ -113,6 +115,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/projects/{project}/budget', fn (string $project) => redirect()->route('reports.projects.detail', $project))
             ->name('projects.budget');
         Route::get('/tasks', TasksReport::class)->name('tasks');
+        Route::get('/reconciliation', ReconciliationReport::class)->name('reconciliation');
         Route::get('/team', TeamOverviewReport::class)->name('team');
         Route::get('/team/{user}', TeamReport::class)->name('team.member');
     });
@@ -132,6 +135,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/rates/library', AdminRatesLibrary::class)->name('rates.library');
         Route::get('/timesheets', AdminTimesheets::class)->name('timesheets');
         Route::get('/time-entries/bulk-move', AdminTimeEntriesBulkMove::class)->name('time-entries.bulk-move');
+        Route::get('/month-locks', AdminMonthLocks::class)->name('month-locks');
         Route::get('/timesheets/{user}', DayView::class)->name('timesheets.user');
         Route::get('/timesheets/{user}/week', WeekView::class)->name('timesheets.user.week');
         Route::get('/integrations/asana', AdminAsanaSettings::class)->name('integrations.asana');

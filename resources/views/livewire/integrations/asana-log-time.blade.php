@@ -109,6 +109,7 @@
                     @endif
                 </div>
             </div>
+            @error('month_lock')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
 
             {{-- Footer — mirrors the entry modal footer --}}
             <div class="flex items-center pt-4 -mx-6 px-6 border-t border-gray-100 !mt-5">
