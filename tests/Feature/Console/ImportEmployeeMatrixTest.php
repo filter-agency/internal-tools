@@ -26,10 +26,13 @@ afterEach(function () {
  * Each person: first, surname, join (DateTime or serial number for a real date cell,
  * string for text), status, type and marks (month as Y-m => marker).
  *
+ * $monthShift moves the first month column on from February (1 = March) and
+ * $firstYearLabel is the year label over that column, to build mis-laid-out sheets.
+ *
  * @param  array<int, array<string, mixed>>  $people
  * @param  array<int, string>|null  $header
  */
-function employeeMatrixWorkbook(array $people, ?array $header = null): string
+function employeeMatrixWorkbook(array $people, ?array $header = null, int $monthShift = 0, string $firstYearLabel = '2024'): string
 {
     $months = ['Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan'];
 
@@ -38,7 +41,7 @@ function employeeMatrixWorkbook(array $people, ?array $header = null): string
     $sheet->setTitle('Employee Matrix');
     $sheet->setCellValue([1, 1], 'EMPLOYEE MOVEMENT & HEADCOUNT MATRIX');
     $sheet->setCellValue([1, 2], 'X = joined, ● = employed, p = leave month');
-    $sheet->setCellValue([6, 3], '2024');
+    $sheet->setCellValue([6, 3], $firstYearLabel);
     $sheet->setCellValue([17, 3], "'2025'");
     $sheet->setCellValue([29, 3], "'2026'");
 
@@ -47,7 +50,7 @@ function employeeMatrixWorkbook(array $people, ?array $header = null): string
         $sheet->setCellValue([$column + 1, 4], $label);
     }
     for ($i = 0; $i < 33; $i++) {
-        $sheet->setCellValue([6 + $i, 4], $months[$i % 12]);
+        $sheet->setCellValue([6 + $i, 4], $months[($i + $monthShift) % 12]);
     }
 
     $row = 5;
@@ -383,3 +386,123 @@ it('is safe to run twice', function () {
         ->toContain('Already up to date: 1')
         ->and($jane->fresh()->left_on?->toDateString())->toBe('2026-06-30');
 });
+
+it('writes nothing for a person listed on more than one row and lists them once', function () {
+    $rejoiner = User::factory()->create(['name' => 'Jane Doe']);
+    $other = User::factory()->create(['name' => 'John Smith']);
+
+    $path = employeeMatrixWorkbook([
+        employeeMatrixPerson([
+            'join' => new DateTimeImmutable('2024-03-04'),
+            'status' => 'Ex-employee',
+            'marks' => ['2025-06' => 'p'],
+        ]),
+        employeeMatrixPerson(['first' => 'John', 'surname' => 'Smith']),
+        employeeMatrixPerson([
+            'first' => 'jane',
+            'surname' => 'DOE',
+            'join' => new DateTimeImmutable('2025-09-01'),
+            'status' => 'Current employee',
+        ]),
+    ]);
+
+    [$exitCode, $output] = employeeMatrixRun($path);
+
+    $rejoiner->refresh();
+    expect($exitCode)->toBe(0)
+        ->and($rejoiner->started_on)->toBeNull()
+        ->and($rejoiner->left_on)->toBeNull()
+        ->and($other->fresh()->started_on?->toDateString())->toBe('2025-03-10')
+        ->and($output)->toContain('Listed more than once (not updated)')
+        ->toContain('Jane Doe (rows 5, 7)')
+        ->toContain('Updated: 1')
+        ->toContain('Listed more than once: 1')
+        ->not->toContain('Approximated leave dates')
+        ->and(substr_count($output, 'Jane Doe'))->toBe(1);
+});
+
+it('does not write a leave month that falls before the join month', function () {
+    $jane = User::factory()->create(['name' => 'Jane Doe']);
+
+    $path = employeeMatrixWorkbook([
+        employeeMatrixPerson(['status' => 'Ex-employee', 'type' => 'Contractor', 'marks' => ['2025-02' => 'p']]),
+    ]);
+
+    [$exitCode, $output] = employeeMatrixRun($path);
+
+    $jane->refresh();
+    expect($exitCode)->toBe(0)
+        ->and($jane->started_on)->toBeNull()
+        ->and($jane->left_on)->toBeNull()
+        ->and($jane->is_contractor)->toBeFalse()
+        ->and($output)->toContain('Leave date before start date (not updated)')
+        ->toContain('Jane Doe')
+        ->toContain('2025-02-28')
+        ->toContain('2025-03-10')
+        ->toContain('Updated: 0')
+        ->toContain('Leave before start: 1')
+        ->not->toContain('Approximated leave dates');
+});
+
+it('allows a leave month that is the same month as the join date', function () {
+    $jane = User::factory()->create(['name' => 'Jane Doe']);
+
+    $path = employeeMatrixWorkbook([
+        employeeMatrixPerson(['status' => 'Ex-employee', 'marks' => ['2025-03' => 'p']]),
+    ]);
+
+    employeeMatrixRun($path);
+
+    expect($jane->fresh()->left_on?->toDateString())->toBe('2025-03-31');
+});
+
+it('checks the new start date against a stored leave date when the sheet sets none', function () {
+    $rejoiner = User::factory()->create(['name' => 'Jane Doe', 'left_on' => '2025-01-31']);
+
+    $path = employeeMatrixWorkbook([employeeMatrixPerson(['status' => 'Current employee'])]);
+
+    [, $output] = employeeMatrixRun($path);
+
+    $rejoiner->refresh();
+    expect($rejoiner->started_on)->toBeNull()
+        ->and($rejoiner->left_on?->toDateString())->toBe('2025-01-31')
+        ->and($output)->toContain('Leave date before start date (not updated)')
+        ->toContain('2025-01-31')
+        ->toContain('2025-03-10')
+        ->toContain('Updated: 0');
+});
+
+it('fails and writes nothing when the month columns do not start at February 2024', function (int $monthShift, string $yearLabel) {
+    $jane = User::factory()->create(['name' => 'Jane Doe']);
+
+    $path = employeeMatrixWorkbook(
+        [employeeMatrixPerson(['status' => 'Ex-employee', 'marks' => ['2026-06' => 'p']])],
+        null,
+        $monthShift,
+        $yearLabel,
+    );
+
+    [$exitCode, $output] = employeeMatrixRun($path);
+
+    expect($exitCode)->toBe(1)
+        ->and($output)->toContain("Month columns don't start at Feb 2024; check the sheet layout.")
+        ->and($jane->fresh()->started_on)->toBeNull()
+        ->and($jane->fresh()->left_on)->toBeNull();
+})->with([
+    'first month is Mar' => [1, '2024'],
+    'first year is 2025' => [0, '2025'],
+]);
+
+it('accepts the first year label as a number or as text with apostrophes', function (mixed $yearLabel) {
+    $jane = User::factory()->create(['name' => 'Jane Doe']);
+
+    $path = employeeMatrixWorkbook([employeeMatrixPerson()], null, 0, $yearLabel);
+
+    [$exitCode] = employeeMatrixRun($path);
+
+    expect($exitCode)->toBe(0)
+        ->and($jane->fresh()->started_on?->toDateString())->toBe('2025-03-10');
+})->with([
+    'numeric cell' => ['2024'],
+    'text with apostrophes' => ["'2024'"],
+]);

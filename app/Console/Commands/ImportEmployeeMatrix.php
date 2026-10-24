@@ -60,17 +60,33 @@ class ImportEmployeeMatrix extends Command
             return self::FAILURE;
         }
 
+        if (! $this->monthColumnsStartAtFebruary2024($rows, $headerIndex)) {
+            $this->error("Month columns don't start at Feb 2024; check the sheet layout. Nothing was written.");
+
+            return self::FAILURE;
+        }
+
         $usersByName = $this->usersByName();
 
         /** @var list<array{user: User, changes: array<string, mixed>}> $updates */
         $updates = [];
         $upToDate = 0;
-        $unmatched = [];
-        $ambiguous = [];
-        $skipped = [];
-        $approximated = [];
-        $noLeaveMonth = [];
-        $currentWithLeaveMarker = [];
+        $lists = [
+            'unmatched' => [],
+            'ambiguous' => [],
+            'duplicates' => [],
+            'conflicts' => [],
+            'skipped' => [],
+            'approximated' => [],
+            'noLeaveMonth' => [],
+            'currentWithLeaveMarker' => [],
+        ];
+
+        // Match every named row to a user first, so a person listed twice can be spotted.
+        /** @var array<int, list<array{number: int, label: string, cells: array<int, mixed>}>> $rowsByUser */
+        $rowsByUser = [];
+        /** @var array<int, User> $usersById */
+        $usersById = [];
 
         foreach (array_slice($rows, $headerIndex + 1, null, true) as $index => $row) {
             $first = $this->text($row[0] ?? null);
@@ -82,11 +98,39 @@ class ImportEmployeeMatrix extends Command
             }
 
             $label = "{$first} {$surname}";
-            $rowNumber = $index + 1;
+            $matches = $usersByName[$this->normalise($label)] ?? [];
+
+            if ($matches === []) {
+                $lists['unmatched'][] = $label;
+
+                continue;
+            }
+            if (count($matches) > 1) {
+                $lists['ambiguous'][] = $label.' ('.count($matches).' users)';
+
+                continue;
+            }
+
+            $user = $matches[0];
+            $rowsByUser[$user->id][] = ['number' => $index + 1, 'label' => $label, 'cells' => $row];
+            $usersById[$user->id] = $user;
+        }
+
+        foreach ($rowsByUser as $userId => $userRows) {
+            $user = $usersById[$userId];
+
+            // Which row wins is a judgement call (a rejoiner has two), so write nothing.
+            if (count($userRows) > 1) {
+                $lists['duplicates'][] = $user->name.' (rows '.implode(', ', array_column($userRows, 'number')).')';
+
+                continue;
+            }
+
+            ['number' => $rowNumber, 'label' => $label, 'cells' => $row] = $userRows[0];
 
             $startedOn = $this->parseDate($row[2] ?? null);
             if ($startedOn === null) {
-                $skipped[] = "Row {$rowNumber} {$label}: join date {$this->describe($row[2] ?? null)} is not a date this command can read";
+                $lists['skipped'][] = "Row {$rowNumber} {$label}: join date {$this->describe($row[2] ?? null)} is not a date this command can read";
 
                 continue;
             }
@@ -94,7 +138,7 @@ class ImportEmployeeMatrix extends Command
             $status = $this->text($row[3] ?? null);
             $isExEmployee = strcasecmp($status, 'Ex-employee') === 0;
             if (! $isExEmployee && strcasecmp($status, 'Current employee') !== 0) {
-                $skipped[] = "Row {$rowNumber} {$label}: status {$this->describe($row[3] ?? null)} is not \"Current employee\" or \"Ex-employee\"";
+                $lists['skipped'][] = "Row {$rowNumber} {$label}: status {$this->describe($row[3] ?? null)} is not \"Current employee\" or \"Ex-employee\"";
 
                 continue;
             }
@@ -105,39 +149,36 @@ class ImportEmployeeMatrix extends Command
                 default => null,
             };
             if ($isContractor === null) {
-                $skipped[] = "Row {$rowNumber} {$label}: person type {$this->describe($row[4] ?? null)} is not \"Employee\" or \"Contractor\"";
+                $lists['skipped'][] = "Row {$rowNumber} {$label}: person type {$this->describe($row[4] ?? null)} is not \"Employee\" or \"Contractor\"";
 
                 continue;
             }
 
-            $matches = $usersByName[$this->normalise($label)] ?? [];
-            if ($matches === []) {
-                $unmatched[] = $label;
+            $leaveMarker = $this->lastLeaveMonth($row);
+            $leaveOn = $isExEmployee ? $leaveMarker?->endOfMonth() : null;
+
+            // The leave that will stand after this run: the derived one, else the saved one.
+            $startDate = $startedOn->toDateString();
+            $effectiveLeave = $leaveOn?->toDateString() ?? $user->left_on?->toDateString();
+            if ($effectiveLeave !== null && $effectiveLeave < $startDate) {
+                $origin = $leaveOn !== null ? "end of {$leaveOn->format('M Y')}" : 'already saved';
+                $lists['conflicts'][] = "{$user->name}: leave date {$effectiveLeave} ({$origin}) is before start date {$startDate}";
 
                 continue;
             }
-            if (count($matches) > 1) {
-                $ambiguous[] = $label.' ('.count($matches).' users)';
-
-                continue;
-            }
-            $user = $matches[0];
 
             $changes = [
-                'started_on' => $startedOn->toDateString(),
+                'started_on' => $startDate,
                 'is_contractor' => $isContractor,
             ];
 
-            $leaveMonth = $this->lastLeaveMonth($row);
-            if ($isExEmployee) {
-                if ($leaveMonth === null) {
-                    $noLeaveMonth[] = $user->name;
-                } else {
-                    $changes['left_on'] = $leaveMonth->endOfMonth()->toDateString();
-                    $approximated[] = "{$user->name}: {$changes['left_on']} (end of {$leaveMonth->format('M Y')})";
-                }
-            } elseif ($leaveMonth !== null) {
-                $currentWithLeaveMarker[] = "{$user->name} (leave marker in {$leaveMonth->format('M Y')})";
+            if ($leaveOn !== null) {
+                $changes['left_on'] = $leaveOn->toDateString();
+                $lists['approximated'][] = "{$user->name}: {$changes['left_on']} (end of {$leaveOn->format('M Y')})";
+            } elseif ($isExEmployee) {
+                $lists['noLeaveMonth'][] = $user->name;
+            } elseif ($leaveMarker !== null) {
+                $lists['currentWithLeaveMarker'][] = "{$user->name} (leave marker in {$leaveMarker->format('M Y')})";
             }
 
             if ($this->wouldChange($user, $changes)) {
@@ -155,21 +196,16 @@ class ImportEmployeeMatrix extends Command
             });
         }
 
-        $this->report($updates, $upToDate, $unmatched, $ambiguous, $skipped, $approximated, $noLeaveMonth, $currentWithLeaveMarker);
+        $this->report($updates, $upToDate, $lists);
 
         return self::SUCCESS;
     }
 
     /**
      * @param  list<array{user: User, changes: array<string, mixed>}>  $updates
-     * @param  list<string>  $unmatched
-     * @param  list<string>  $ambiguous
-     * @param  list<string>  $skipped
-     * @param  list<string>  $approximated
-     * @param  list<string>  $noLeaveMonth
-     * @param  list<string>  $currentWithLeaveMarker
+     * @param  array{unmatched: list<string>, ambiguous: list<string>, duplicates: list<string>, conflicts: list<string>, skipped: list<string>, approximated: list<string>, noLeaveMonth: list<string>, currentWithLeaveMarker: list<string>}  $lists
      */
-    private function report(array $updates, int $upToDate, array $unmatched, array $ambiguous, array $skipped, array $approximated, array $noLeaveMonth, array $currentWithLeaveMarker): void
+    private function report(array $updates, int $upToDate, array $lists): void
     {
         if ($updates !== []) {
             $this->table(['Name', 'Start', 'Leave', 'Person type'], array_map(function (array $update): array {
@@ -186,20 +222,24 @@ class ImportEmployeeMatrix extends Command
         }
 
         $this->info(sprintf(
-            'Updated: %d. Already up to date: %d. Unmatched: %d. Ambiguous: %d. Skipped rows: %d.',
+            'Updated: %d. Already up to date: %d. Unmatched: %d. Ambiguous: %d. Listed more than once: %d. Leave before start: %d. Skipped rows: %d.',
             count($updates),
             $upToDate,
-            count($unmatched),
-            count($ambiguous),
-            count($skipped),
+            count($lists['unmatched']),
+            count($lists['ambiguous']),
+            count($lists['duplicates']),
+            count($lists['conflicts']),
+            count($lists['skipped']),
         ));
 
-        $this->section('Unmatched names (no user with that name)', $unmatched);
-        $this->section('Ambiguous matches (more than one user has that name, skipped)', $ambiguous);
-        $this->section('Skipped rows', $skipped);
-        $this->section('Approximated leave dates (end of the last month marked p)', $approximated);
-        $this->section('Warning: ex-employee with no leave month found (leave date left unchanged)', $noLeaveMonth);
-        $this->section('Warning: current employee with a leave marker (leave date not set)', $currentWithLeaveMarker);
+        $this->section('Unmatched names (no user with that name)', $lists['unmatched']);
+        $this->section('Ambiguous matches (more than one user has that name, skipped)', $lists['ambiguous']);
+        $this->section('Listed more than once (not updated)', $lists['duplicates']);
+        $this->section('Leave date before start date (not updated)', $lists['conflicts']);
+        $this->section('Skipped rows', $lists['skipped']);
+        $this->section('Approximated leave dates (end of the last month marked p)', $lists['approximated']);
+        $this->section('Warning: ex-employee with no leave month found (leave date left unchanged)', $lists['noLeaveMonth']);
+        $this->section('Warning: current employee with a leave marker (leave date not set)', $lists['currentWithLeaveMarker']);
 
         if ($this->option('dry-run')) {
             $this->newLine();
@@ -219,6 +259,20 @@ class ImportEmployeeMatrix extends Command
         foreach ($lines as $line) {
             $this->line("  - {$line}");
         }
+    }
+
+    /**
+     * Every derived leave date depends on the month columns starting at Feb 2024:
+     * the header must read "Feb" and the year row just above it must read 2024.
+     *
+     * @param  array<int, array<int, mixed>>  $rows
+     */
+    private function monthColumnsStartAtFebruary2024(array $rows, int $headerIndex): bool
+    {
+        $firstMonth = $this->text($rows[$headerIndex][self::FIRST_MONTH_COLUMN] ?? null);
+        $firstYear = trim($this->text($rows[$headerIndex - 1][self::FIRST_MONTH_COLUMN] ?? null), "'");
+
+        return strcasecmp($firstMonth, 'Feb') === 0 && $firstYear === '2024';
     }
 
     /** @param  array<int, array<int, mixed>>  $rows */
