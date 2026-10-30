@@ -263,13 +263,13 @@
                 <div class="border-t border-gray-100 pt-6 mt-6 mb-6">
                     <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">JDW contract position</h3>
                     <p class="text-xs text-gray-500 mb-1">Which of JDW's contracted positions this person fills. It can differ from their job title, and change while their employment dates stay the same.</p>
-                    <p class="text-xs text-gray-500 mb-3">Changes here save straight away. Each position applies from its date until the next change.</p>
+                    <p class="text-xs text-gray-500 mb-3">Changes here save straight away. Each position applies from its date until its end date or the next change. Leave the end date blank if it is ongoing.</p>
 
                     @if($contractPositions->isNotEmpty())
                         <ul class="mb-3 divide-y divide-gray-100 rounded-md border border-gray-200">
                             @foreach($contractPositions as $contractPosition)
                                 <li wire:key="contract-position-{{ $contractPosition->id }}" class="flex items-center justify-between gap-3 px-3 py-2 text-sm text-gray-700">
-                                    <span>{{ $contractPosition->position?->label() ?? \App\Enums\ContractPosition::OUTSIDE_LABEL }} from {{ $contractPosition->effective_from->format('j M Y') }}</span>
+                                    <span>{{ $contractPosition->position?->label() ?? \App\Enums\ContractPosition::OUTSIDE_LABEL }} from {{ $contractPosition->effective_from->format('j M Y') }}{{ $contractPosition->effective_until ? ' to '.$contractPosition->effective_until->format('j M Y') : '' }}</span>
                                     <button
                                         type="button"
                                         wire:click="removeContractPosition({{ $contractPosition->id }})"
@@ -290,8 +290,13 @@
                                 <option value="{{ $option->value }}">{{ $option->label() }}</option>
                             @endforeach
                         </select>
-                        <div class="flex items-center gap-2">
-                            <input wire:model="newPositionFrom" type="date" aria-label="Effective from" class="min-w-0 flex-1 border border-gray-300 rounded-md text-sm px-3 py-2">
+                        <div class="flex items-end gap-2">
+                            <label class="min-w-0 flex-1 text-xs text-gray-500">From
+                                <input wire:model="newPositionFrom" type="date" class="mt-1 w-full border border-gray-300 rounded-md text-sm text-gray-900 px-3 py-2">
+                            </label>
+                            <label class="min-w-0 flex-1 text-xs text-gray-500">Until (optional)
+                                <input wire:model="newPositionUntil" type="date" class="mt-1 w-full border border-gray-300 rounded-md text-sm text-gray-900 px-3 py-2">
+                            </label>
                             <button
                                 type="button"
                                 wire:click="addContractPosition"
@@ -301,6 +306,7 @@
                     </div>
                     @error('newPosition')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
                     @error('newPositionFrom')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
+                    @error('newPositionUntil')<p class="text-red-600 text-xs mt-1">{{ $message }}</p>@enderror
                 </div>
 
                 <div class="border-t border-gray-100 pt-6 mt-6 mb-6">
