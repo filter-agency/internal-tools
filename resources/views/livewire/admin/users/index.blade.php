@@ -268,17 +268,28 @@
                     @if($contractPositions->isNotEmpty())
                         <ul class="mb-3 divide-y divide-gray-100 rounded-md border border-gray-200">
                             @foreach($contractPositions as $contractPosition)
-                                <li wire:key="contract-position-{{ $contractPosition->id }}" class="flex items-center justify-between gap-3 px-3 py-2 text-sm text-gray-700">
-                                    <span>{{ $contractPosition->position?->label() ?? \App\Enums\ContractPosition::OUTSIDE_LABEL }} from {{ $contractPosition->effective_from->format('j M Y') }}{{ $contractPosition->effective_until ? ' to '.$contractPosition->effective_until->format('j M Y') : '' }}</span>
-                                    <button
-                                        type="button"
-                                        wire:click="removeContractPosition({{ $contractPosition->id }})"
-                                        wire:confirm="Remove this position change?"
-                                        class="shrink-0 text-sm text-red-600 hover:underline"
-                                    >Remove</button>
+                                <li wire:key="contract-position-{{ $contractPosition->id }}" class="px-3 py-2 text-sm text-gray-700">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <span>{{ $contractPosition->position?->label() ?? \App\Enums\ContractPosition::OUTSIDE_LABEL }} from {{ $contractPosition->effective_from->format('j M Y') }}{{ $contractPosition->effective_until ? ' to '.$contractPosition->effective_until->format('j M Y') : '' }}</span>
+                                        <button
+                                            type="button"
+                                            wire:click="removeContractPosition({{ $contractPosition->id }})"
+                                            wire:confirm="Remove this position change?"
+                                            class="shrink-0 text-sm text-red-600 hover:underline"
+                                        >Remove</button>
+                                    </div>
+                                    <label class="mt-1 flex items-center gap-2 text-xs text-gray-500">Until
+                                        <input
+                                            type="date"
+                                            value="{{ $contractPosition->effective_until?->toDateString() }}"
+                                            wire:change="setContractPositionEnd({{ $contractPosition->id }}, $event.target.value)"
+                                            class="border border-gray-300 rounded-md text-xs text-gray-900 px-2 py-1"
+                                        >
+                                    </label>
                                 </li>
                             @endforeach
                         </ul>
+                        @error('positionEnd')<p class="-mt-2 mb-3 text-red-600 text-xs">{{ $message }}</p>@enderror
                     @else
                         <p class="mb-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500">No positions recorded yet.</p>
                     @endif

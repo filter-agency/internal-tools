@@ -442,5 +442,91 @@ test('saving the panel with an unadded end date is refused', function () {
         ->call('edit', $person->id)
         ->set('newPositionUntil', '2025-02-01')
         ->call('save')
-        ->assertHasErrors(['newPositionFrom']);
+        ->assertHasErrors(['newPositionUntil'])
+        ->assertHasNoErrors(['newPositionFrom']);
+});
+
+test('an admin sets, changes and clears the end date of an existing position', function () {
+    $admin = User::factory()->admin()->create();
+    $person = User::factory()->create();
+    $row = UserContractPosition::create(['user_id' => $person->id, 'position' => ContractPosition::SeniorDeveloper, 'effective_from' => '2026-05-01']);
+
+    $component = Livewire::actingAs($admin)
+        ->test(Index::class)
+        ->call('edit', $person->id)
+        ->call('setContractPositionEnd', $row->id, '2026-10-31')
+        ->assertHasNoErrors()
+        ->assertSee('Senior Developer from 1 May 2026 to 31 Oct 2026');
+
+    expect($row->fresh()->effective_until->toDateString())->toBe('2026-10-31');
+
+    $component->call('setContractPositionEnd', $row->id, '2026-04-30')
+        ->assertHasErrors(['positionEnd']);
+    expect($row->fresh()->effective_until->toDateString())->toBe('2026-10-31');
+
+    $component->call('setContractPositionEnd', $row->id, '')
+        ->assertHasNoErrors();
+    expect($row->fresh()->effective_until)->toBeNull();
+});
+
+test('setting an end date ignores another persons row and needs an admin', function () {
+    $admin = User::factory()->admin()->create();
+    $manager = User::factory()->manager()->create();
+    $person = User::factory()->create();
+    $other = User::factory()->create();
+    $othersRow = UserContractPosition::create(['user_id' => $other->id, 'position' => ContractPosition::Developer, 'effective_from' => '2025-02-01']);
+
+    Livewire::actingAs($admin)
+        ->test(Index::class)
+        ->call('edit', $person->id)
+        ->call('setContractPositionEnd', $othersRow->id, '2025-03-31');
+
+    Livewire::actingAs($manager)
+        ->test(Index::class)
+        ->call('setContractPositionEnd', $othersRow->id, '2025-03-31')
+        ->assertForbidden();
+
+    expect($othersRow->fresh()->effective_until)->toBeNull();
+});
+
+test('a position cannot start inside an earlier dated stint', function () {
+    $admin = User::factory()->admin()->create();
+    $person = User::factory()->create();
+    UserContractPosition::create(['user_id' => $person->id, 'position' => ContractPosition::SeniorDeveloper, 'effective_from' => '2024-07-01', 'effective_until' => '2026-02-28']);
+
+    Livewire::actingAs($admin)
+        ->test(Index::class)
+        ->call('edit', $person->id)
+        ->set('newPosition', ContractPosition::SeniorDeveloper->value)
+        ->set('newPositionFrom', '2026-01-01')
+        ->call('addContractPosition')
+        ->assertHasErrors(['newPositionFrom'])
+        ->set('newPositionFrom', '2026-03-01')
+        ->call('addContractPosition')
+        ->assertHasNoErrors();
+
+    expect(UserContractPosition::query()->where('user_id', $person->id)->count())->toBe(2);
+});
+
+test('an end date cannot run past the start of a later position', function () {
+    $admin = User::factory()->admin()->create();
+    $person = User::factory()->create();
+    $earlier = UserContractPosition::create(['user_id' => $person->id, 'position' => ContractPosition::Developer, 'effective_from' => '2025-01-01']);
+    UserContractPosition::create(['user_id' => $person->id, 'position' => ContractPosition::SeniorDeveloper, 'effective_from' => '2025-06-01']);
+
+    Livewire::actingAs($admin)
+        ->test(Index::class)
+        ->call('edit', $person->id)
+        ->call('setContractPositionEnd', $earlier->id, '2025-12-31')
+        ->assertHasErrors(['positionEnd'])
+        ->call('setContractPositionEnd', $earlier->id, '2025-05-31')
+        ->assertHasNoErrors()
+        ->set('newPosition', ContractPosition::Tester->value)
+        ->set('newPositionFrom', '2024-01-01')
+        ->set('newPositionUntil', '2025-01-01')
+        ->call('addContractPosition')
+        ->assertHasErrors(['newPositionUntil']);
+
+    expect($earlier->fresh()->effective_until->toDateString())->toBe('2025-05-31')
+        ->and(UserContractPosition::query()->where('user_id', $person->id)->count())->toBe(2);
 });

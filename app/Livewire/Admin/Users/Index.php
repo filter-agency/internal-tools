@@ -9,6 +9,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Models\UserContractPosition;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -119,7 +120,7 @@ class Index extends Component
 
         // The position form saves on its own button, so a filled-in date would be lost silently.
         if ($this->newPositionFrom !== '' || $this->newPositionUntil !== '') {
-            $this->addError('newPositionFrom', self::UNADDED_POSITION_ERROR);
+            $this->addError($this->newPositionFrom !== '' ? 'newPositionFrom' : 'newPositionUntil', self::UNADDED_POSITION_ERROR);
 
             return;
         }
@@ -238,13 +239,92 @@ class Index extends Component
             return;
         }
 
+        $until = $this->newPositionUntil !== '' ? $this->newPositionUntil : null;
+        $overlap = $this->contractPositionOverlap($user, $this->newPositionFrom, $until);
+        if ($overlap !== null) {
+            $this->addError($overlap[0] === 'from' ? 'newPositionFrom' : 'newPositionUntil', $overlap[1]);
+
+            return;
+        }
+
         $user->contractPositions()->create([
             'position' => ContractPosition::tryFrom($this->newPosition),
             'effective_from' => $this->newPositionFrom,
-            'effective_until' => $this->newPositionUntil !== '' ? $this->newPositionUntil : null,
+            'effective_until' => $until,
         ]);
 
         $this->reset('newPosition', 'newPositionFrom', 'newPositionUntil');
+    }
+
+    /** Sets or clears ('') the end date of one of the edited person's positions; saves straight away. */
+    public function setContractPositionEnd(int $id, string $until): void
+    {
+        Gate::authorize('access-admin');
+
+        $this->resetErrorBag('positionEnd');
+
+        // Scoped to the person being edited so another person's row id does nothing.
+        $row = UserContractPosition::query()
+            ->where('user_id', (int) $this->editingId)
+            ->whereKey($id)
+            ->first();
+        if ($row === null) {
+            return;
+        }
+
+        $until = trim($until);
+        if ($until !== '') {
+            $from = $row->effective_from->toDateString();
+            $validator = Validator::make(
+                ['positionEnd' => $until],
+                ['positionEnd' => ['date_format:Y-m-d', 'after_or_equal:'.$from]],
+                ['positionEnd.after_or_equal' => 'The end date must be on or after the start date.'],
+                ['positionEnd' => 'end date'],
+            );
+            if ($validator->fails()) {
+                $this->addError('positionEnd', $validator->errors()->first('positionEnd'));
+
+                return;
+            }
+
+            $overlap = $this->contractPositionOverlap($row->user, $from, $until, $row->id);
+            if ($overlap !== null) {
+                $this->addError('positionEnd', $overlap[1]);
+
+                return;
+            }
+        }
+
+        $row->update(['effective_until' => $until !== '' ? $until : null]);
+    }
+
+    /**
+     * A dated stint must not contain the start of another change, or the list would
+     * show an end date the reports never reach. Returns which date clashes and why.
+     *
+     * @return array{0: 'from'|'until', 1: string}|null
+     */
+    private function contractPositionOverlap(User $user, string $from, ?string $until, ?int $ignoreId = null): ?array
+    {
+        foreach ($user->contractPositions()->get() as $other) {
+            if ($other->id === $ignoreId) {
+                continue;
+            }
+
+            $otherFrom = $other->effective_from->toDateString();
+            $otherUntil = $other->effective_until?->toDateString();
+            $label = $other->position?->label() ?? ContractPosition::OUTSIDE_LABEL;
+
+            if ($otherUntil !== null && $from > $otherFrom && $from <= $otherUntil) {
+                return ['from', "This starts inside {$label} from {$other->effective_from->format('j M Y')} to {$other->effective_until?->format('j M Y')}."];
+            }
+
+            if ($until !== null && $otherFrom > $from && $otherFrom <= $until) {
+                return ['until', "This end date runs past the start of {$label} on {$other->effective_from->format('j M Y')}."];
+            }
+        }
+
+        return null;
     }
 
     public function removeContractPosition(int $id): void
