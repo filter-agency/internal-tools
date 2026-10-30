@@ -583,3 +583,24 @@ it('flags the end date when the start date is moved past it, and clears it when 
         ->set('from', '2026-07-15')
         ->assertHasNoErrors(['from', 'to']);
 });
+
+it('splits a month where a contract position ends', function () {
+    $user = auditUser();
+    UserContractPosition::create([
+        'user_id' => $user->id,
+        'position' => ContractPosition::SeniorDeveloper,
+        'effective_from' => '2026-01-01',
+        'effective_until' => '2026-07-15',
+    ]);
+    $project = auditProject();
+    $task = auditTask();
+    auditEntry($user, $project, $task, '2026-07-15', 2.0);
+    auditEntry($user, $project, $task, '2026-07-16', 3.0);
+
+    $rows = auditDataRows(auditCsv([$project->client_id]));
+
+    expect(array_map(fn (array $row): array => [$row[2], $row[7]], $rows))->toBe([
+        ['Outside contracted team', '3.00'],
+        ['Senior Developer', '2.00'],
+    ]);
+});
