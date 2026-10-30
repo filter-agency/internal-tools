@@ -15,7 +15,7 @@ use Carbon\CarbonInterface;
 final class ContractPositionTimeline
 {
     /**
-     * @param  array<int, array<string, ContractPosition|null>>  $changesByUser  per user, effective_from (Y-m-d) => position, sorted by date
+     * @param  array<int, array<string, array{position: ContractPosition|null, until: string|null}>>  $changesByUser  per user, effective_from (Y-m-d) => change, sorted by date
      */
     private function __construct(private readonly array $changesByUser) {}
 
@@ -24,7 +24,10 @@ final class ContractPositionTimeline
         $changesByUser = [];
 
         foreach (UserContractPosition::query()->get() as $row) {
-            $changesByUser[$row->user_id][$row->effective_from->toDateString()] = $row->position;
+            $changesByUser[$row->user_id][$row->effective_from->toDateString()] = [
+                'position' => $row->position,
+                'until' => $row->effective_until?->toDateString(),
+            ];
         }
 
         return new self(array_map(function (array $changes): array {
@@ -36,22 +39,27 @@ final class ContractPositionTimeline
 
     /**
      * Null when the person held no position on that date: no change had taken
-     * effect yet, or the latest change moved them outside the contracted team.
+     * effect yet, the latest change had ended, or it moved them outside the
+     * contracted team.
      */
     public function on(int $userId, CarbonInterface|string $date): ?ContractPosition
     {
         $day = $date instanceof CarbonInterface ? $date->toDateString() : Carbon::parse($date)->toDateString();
 
-        $position = null;
-        foreach ($this->changesByUser[$userId] ?? [] as $effectiveFrom => $changedTo) {
+        $latest = null;
+        foreach ($this->changesByUser[$userId] ?? [] as $effectiveFrom => $change) {
             if ($effectiveFrom > $day) {
                 break;
             }
 
-            $position = $changedTo;
+            $latest = $change;
         }
 
-        return $position;
+        if ($latest === null || ($latest['until'] !== null && $latest['until'] < $day)) {
+            return null;
+        }
+
+        return $latest['position'];
     }
 
     public function labelOn(int $userId, CarbonInterface|string $date): string

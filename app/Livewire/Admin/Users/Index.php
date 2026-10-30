@@ -81,6 +81,8 @@ class Index extends Component
 
     public string $newPositionFrom = '';
 
+    public string $newPositionUntil = '';
+
     public function edit(int $userId): void
     {
         Gate::authorize('access-admin');
@@ -107,7 +109,7 @@ class Index extends Component
         $this->editEmailNotificationsEnabled = $user->email_notifications_enabled;
         $this->editSlackNotificationsEnabled = $user->slack_notifications_enabled;
         $this->editSlackUserId = $user->slack_user_id;
-        $this->reset('newPosition', 'newPositionFrom');
+        $this->reset('newPosition', 'newPositionFrom', 'newPositionUntil');
         $this->resetErrorBag();
     }
 
@@ -116,7 +118,7 @@ class Index extends Component
         Gate::authorize('access-admin');
 
         // The position form saves on its own button, so a filled-in date would be lost silently.
-        if ($this->newPositionFrom !== '') {
+        if ($this->newPositionFrom !== '' || $this->newPositionUntil !== '') {
             $this->addError('newPositionFrom', self::UNADDED_POSITION_ERROR);
 
             return;
@@ -218,11 +220,13 @@ class Index extends Component
         $this->validate([
             'newPosition' => ['nullable', Rule::enum(ContractPosition::class)],
             'newPositionFrom' => ['required', 'date_format:Y-m-d', 'after_or_equal:2000-01-01'],
+            'newPositionUntil' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:newPositionFrom'],
         ], [
             'newPositionFrom.after_or_equal' => 'Enter a date from 2000 onwards.',
         ], [
             'newPosition' => 'position',
             'newPositionFrom' => 'effective date',
+            'newPositionUntil' => 'end date',
         ]);
 
         $user = User::findOrFail((int) $this->editingId);
@@ -237,9 +241,10 @@ class Index extends Component
         $user->contractPositions()->create([
             'position' => ContractPosition::tryFrom($this->newPosition),
             'effective_from' => $this->newPositionFrom,
+            'effective_until' => $this->newPositionUntil !== '' ? $this->newPositionUntil : null,
         ]);
 
-        $this->reset('newPosition', 'newPositionFrom');
+        $this->reset('newPosition', 'newPositionFrom', 'newPositionUntil');
     }
 
     public function removeContractPosition(int $id): void
