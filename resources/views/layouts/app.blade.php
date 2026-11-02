@@ -60,6 +60,12 @@
                 </div>
                 @endif
 
+                <a href="{{ route('tell-paul') }}" wire:navigate.hover
+                   class="inline-flex items-center gap-2 text-sm font-medium text-white whitespace-nowrap {{ request()->routeIs('tell-paul*') ? 'opacity-100 font-semibold' : 'opacity-70 hover:opacity-100' }}">
+                    Idea Box
+                    <span class="rounded-full bg-amber-300 px-1.5 py-0.5 text-xs font-semibold leading-none text-gray-900">New</span>
+                </a>
+
             </div>
 
             <div class="flex items-center gap-4">
