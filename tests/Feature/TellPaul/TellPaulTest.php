@@ -34,7 +34,7 @@ test('submissions include the signed-in sender and are emailed to Paul', functio
     $user = User::factory()->create();
     $this->actingAs($user);
     fillSuggestion()->call('submit')->assertHasNoErrors()->assertSet('title', '')
-        ->assertSee('Your idea has been emailed to us');
+        ->assertSee('Your idea has been emailed to us')->assertDispatched('idea-submitted');
     Mail::assertSent(TellPaulSuggestion::class, fn ($mail) => $mail->hasTo('paul@example.com') && $mail->submitterEmail === $user->email
         && $mail->submitterName === $user->name
         && $mail->envelope()->replyTo[0]->address === $user->email);
@@ -52,7 +52,7 @@ test('failed mail delivery preserves answers and does not report success', funct
     Mail::shouldReceive('mailer')->once()->andThrow(new RuntimeException('Transport unavailable'));
     fillSuggestion()->call('submit')->assertHasErrors('submit')
         ->assertSet('title', 'Try a new framework')
-        ->assertDontSee('Your idea has been emailed to us');
+        ->assertDontSee('Your idea has been emailed to us')->assertNotDispatched('idea-submitted');
 });
 
 test('repeated submissions are limited without sending another email', function () {
@@ -62,4 +62,19 @@ test('repeated submissions are limited without sending another email', function 
     }
     fillSuggestion()->call('submit')->assertHasErrors('submit');
     Mail::assertSentCount(5);
+});
+
+test('idea emails have clear sections and escape submitted HTML', function () {
+    $mail = new TellPaulSuggestion([
+        'title' => '<script>Bad title</script>',
+        'proposal' => "First line\nSecond line <img src=x onerror=alert(1)>",
+        'reason' => 'A reason',
+        'benefits' => 'Client benefits',
+        'exploration' => 'Prototype results',
+    ], 'Test Sender', 'sender@example.com');
+
+    $html = $mail->render();
+    expect($html)->toContain('<h1', '<h2', 'Reply to this email', 'First line<br', '&lt;script&gt;', '&lt;img')
+        ->not->toContain('<script>', '<img src=x');
+    expect($mail->content()->text)->toBe('emails.tell-paul-text');
 });

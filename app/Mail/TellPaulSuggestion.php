@@ -26,6 +26,6 @@ class TellPaulSuggestion extends Mailable
 
     public function content(): Content
     {
-        return new Content(text: 'emails.tell-paul');
+        return new Content(view: 'emails.tell-paul', text: 'emails.tell-paul-text');
     }
 }

@@ -64,7 +64,8 @@ class TellPaul extends Component
         }
         RateLimiter::hit($key, 600);
         $this->reset();
-        session()->flash('suggestion-sent', 'Thanks for sharing your idea. Your idea has been emailed to us.');
+        session()->flash('suggestion-sent', 'Thanks for sharing your idea. Your idea has been emailed to us. You can submit another idea below.');
+        $this->dispatch('idea-submitted');
     }
 
     public function render(): View

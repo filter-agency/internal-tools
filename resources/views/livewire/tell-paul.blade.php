@@ -1,4 +1,4 @@
-<div class="max-w-3xl mx-auto">
+<div class="max-w-3xl mx-auto" x-data x-on:idea-submitted="$nextTick(() => { $refs.confirmation?.focus({ preventScroll: true }); window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); })">
     <div class="mb-6">
         <div class="flex items-center justify-between gap-4">
             <h1 class="text-2xl font-semibold text-gray-900">Idea Box</h1>
@@ -8,7 +8,7 @@
     </div>
 
     @if(session()->has('suggestion-sent'))
-        <div role="status" class="mb-6 rounded-lg border border-green-200 bg-green-50 p-4 text-green-800">{{ session('suggestion-sent') }}</div>
+        <div x-ref="confirmation" tabindex="-1" role="status" class="mb-6 rounded-lg border border-green-200 bg-green-50 p-4 text-green-800">{{ session('suggestion-sent') }}</div>
     @endif
 
     <form wire:submit="submit" class="rounded-lg border border-gray-200 bg-white p-6 space-y-6">
