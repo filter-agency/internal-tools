@@ -7,6 +7,7 @@ use App\Models\Project;
 use App\Models\Task;
 use App\Models\TimeEntry;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 
@@ -169,3 +170,37 @@ test('empty rows persist after the session is gone (returning the next day)', fu
     Livewire::test(WeekView::class)
         ->assertSet("cellValues.{$rowKey}", ['', '', '', '', '', '', '']);
 });
+
+test('weekly dates are static headings and the Day toggle still switches views', function (string $mode) {
+    $this->travelTo(CarbonImmutable::parse('2026-11-09 12:00:00'));
+    $user = User::factory()->create();
+    $viewer = match ($mode) {
+        'personal' => $user,
+        'admin' => User::factory()->admin()->create(),
+        'team' => User::factory()->create(['role' => Role::Manager]),
+    };
+    if ($mode === 'team') {
+        $user->update(['reports_to_user_id' => $viewer->id]);
+    }
+    [$weekRoute, $dayRoute] = match ($mode) {
+        'personal' => ['timesheet.week', 'timesheet'],
+        'admin' => ['admin.timesheets.user.week', 'admin.timesheets.user'],
+        'team' => ['team.timesheet.week', 'team.timesheet'],
+    };
+    $parameters = ['date' => '2026-11-09'];
+    if ($mode !== 'personal') {
+        $parameters['user'] = $user;
+    }
+    $response = $this->actingAs($viewer)->get(route($weekRoute, $parameters))->assertOk();
+    $document = new DOMDocument;
+    $document->loadHTML($response->getContent(), LIBXML_NOERROR | LIBXML_NOWARNING);
+    $xpath = new DOMXPath($document);
+
+    expect($xpath->query('//thead//a | //thead//button')->length)->toBe(0);
+    foreach (['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as $day) {
+        expect($xpath->query('//thead//th[contains(., "'.$day.'")]')->length)->toBe(1);
+    }
+    $toggle = $xpath->query('//a[normalize-space(.)="Day"]');
+    expect($toggle->length)->toBe(1)
+        ->and($toggle->item(0)->getAttribute('href'))->toBe(route($dayRoute, $parameters));
+})->with(['personal', 'admin', 'team']);
