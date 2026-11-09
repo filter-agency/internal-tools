@@ -1,21 +1,4 @@
-<div
-    x-data="{
-        hasUnsavedWeekChanges: false,
-        markWeekDirty() {
-            this.hasUnsavedWeekChanges = true;
-        },
-        clearWeekDirty() {
-            this.hasUnsavedWeekChanges = false;
-        },
-        confirmWeekDayNavigation(event) {
-            if (!this.hasUnsavedWeekChanges) return;
-
-            if (!window.confirm('You have unsaved changes on this week. Leave without saving?')) {
-                event.preventDefault();
-            }
-        },
-    }"
->
+<div>
     @if($isImpersonating)
         <div class="mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
             <div class="text-sm text-amber-900">
@@ -136,25 +119,14 @@
                 <tr>
                     <th class="px-4 py-3 text-left font-medium text-gray-600" style="min-width: 224px;">Project &amp; task</th>
                     @foreach($weekDays as $day)
-                        @php
-                            $dayDate = $day->toDateString();
-                            $headerDayUrl = $isImpersonating || $isReadOnly
-                                ? route(request()->routeIs('admin.*') ? 'admin.timesheets.user' : 'team.timesheet', ['user' => $viewedUser, 'date' => $dayDate])
-                                : route('timesheet', ['date' => $dayDate]);
-                        @endphp
-                        <th class="px-2 py-3 text-center font-medium text-gray-600 {{ $day->isToday() ? 'bg-green-50' : '' }}" style="min-width: 80px;">
-                            <a
-                                href="{{ $headerDayUrl }}"
-                                data-week-day-link
-                                data-unsaved-week-guard
-                                @click="confirmWeekDayNavigation($event)"
-                                aria-label="{{ $day->format('l j F Y') }}"
-                                aria-current="{{ $day->isToday() ? 'date' : 'false' }}"
-                                class="flex flex-col items-center rounded-lg px-2 py-1 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500"
-                            >
+                        <th scope="col"
+                            aria-label="{{ $day->format('l j F Y') }}"
+                            aria-current="{{ $day->isToday() ? 'date' : 'false' }}"
+                            class="px-2 py-3 text-center font-medium text-gray-600 {{ $day->isToday() ? 'bg-green-50' : '' }}" style="min-width: 80px;">
+                            <div class="flex flex-col items-center rounded-lg px-2 py-1">
                                 <span class="text-xs text-gray-500 uppercase tracking-wide">{{ $day->format('D') }}</span>
                                 <span class="mt-1 flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium {{ $day->isToday() ? 'bg-green-600 text-white' : 'text-gray-700' }}">{{ $day->format('j') }}</span>
-                            </a>
+                            </div>
                         </th>
                     @endforeach
                     <th class="px-2 py-3 text-right font-medium text-gray-600" style="min-width: 70px;">Total</th>
@@ -213,8 +185,6 @@
                                                aria-describedby="week-error-{{ $row['key'] }}-{{ $i }}"
                                                title="{{ $errors->first('cellValues.'.$row['key'].'.'.$i) }}"
                                            @endif
-                                           @input="markWeekDirty()"
-                                           @change="markWeekDirty()"
                                            @disabled($cellLocks[$i])
                                            class="w-full text-center text-sm tabular-nums border rounded-lg px-2 py-2 transition focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent {{ $errors->has('cellValues.'.$row['key'].'.'.$i) ? 'border-red-500 bg-red-50 text-red-900' : 'border-gray-200 bg-white' }} {{ $cellLocks[$i] ? 'text-gray-400 cursor-not-allowed' : 'hover:border-gray-300' }}">
                                     @error('cellValues.'.$row['key'].'.'.$i)
@@ -296,7 +266,7 @@
             <div class="ml-auto flex items-center gap-4">
                 <span class="text-sm text-gray-500">Week: <span class="ml-1 font-semibold tabular-nums text-gray-800">{{ \App\Domain\TimeTracking\HoursFormatter::format((float) $weekTotal, $hoursFormat) }}</span></span>
                 <button type="button"
-                        @click="$wire.save().then((saved) => { if (saved) clearWeekDirty(); })"
+                        wire:click="save"
                         class="inline-flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition">
                     Save
                 </button>
