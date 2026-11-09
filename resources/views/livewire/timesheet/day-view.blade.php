@@ -190,7 +190,7 @@
     </div>
 
     {{-- Week strip --}}
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-6 overflow-hidden">
         <div class="grid grid-cols-7 divide-x divide-gray-100">
             @foreach ($weekDays as $day)
                 @php
@@ -223,6 +223,7 @@
         </div>
     @endif
     {{-- Refusals from row actions; the entry modal shows its own copy. --}}
+    @error('time_entry')<p class="mb-2 text-red-600 text-sm" role="alert">{{ $message }}</p>@enderror
     @error('month_lock')<p x-show="!showEntryModal" class="text-red-600 text-xs mb-2">{{ $message }}</p>@enderror
     @if ($dayEntries->isEmpty())
         <div

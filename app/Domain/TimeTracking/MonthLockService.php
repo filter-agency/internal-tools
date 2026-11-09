@@ -44,12 +44,17 @@ final class MonthLockService
         }
 
         return DB::transaction(function () use ($client, $start, $label, $issuedOn, $admin): MonthLock {
+            app(MonthLockGuard::class)->lockUsers([$admin->id]);
+            // Entries and project moves take this same row lock before writing.
+            Client::query()->whereKey($client->id)->lockForUpdate()->firstOrFail();
+
             $alreadyLocked = MonthLock::query()
                 ->where('client_id', $client->id)
                 ->whereDate('month', $start->toDateString())
-                ->exists();
+                ->lockForUpdate()
+                ->first();
 
-            if ($alreadyLocked) {
+            if ($alreadyLocked !== null) {
                 throw ValidationException::withMessages([
                     'month' => "{$label} is already locked for {$client->name}.",
                 ]);
@@ -57,11 +62,14 @@ final class MonthLockService
 
             $running = TimeEntry::query()
                 ->where('is_running', true)
-                ->whereHas('project', fn ($query) => $query->where('client_id', $client->id))
+                ->join('projects', 'projects.id', '=', 'time_entries.project_id')
+                ->where('projects.client_id', $client->id)
+                ->select('time_entries.*')
+                ->lockForUpdate()
                 ->where('spent_on', '>=', $start->toDateString())
                 ->where('spent_on', '<', $start->addMonth()->toDateString())
                 ->with('user')
-                ->orderBy('id')
+                ->orderBy('time_entries.id')
                 ->first();
 
             if ($running !== null) {
@@ -77,7 +85,7 @@ final class MonthLockService
                 'locked_by_user_id' => $admin->id,
             ]);
 
-            foreach (ClientMonthTotals::byProjectTask($client->id, $start) as $key => $hours) {
+            foreach (ClientMonthTotals::byProjectTask($client->id, $start, currentRead: true) as $key => $hours) {
                 [$projectId, $taskId] = array_map('intval', explode('|', $key));
 
                 $lock->snapshots()->create([
@@ -88,7 +96,7 @@ final class MonthLockService
             }
 
             return $lock;
-        });
+        }, attempts: 3);
     }
 
     /**
@@ -108,6 +116,7 @@ final class MonthLockService
         }
 
         return DB::transaction(function () use ($lock, $admin, $reason): MonthLockOverride {
+            app(MonthLockGuard::class)->lockUsers([$admin->id]);
             $lock->overrides()
                 ->active()
                 ->where('user_id', $admin->id)

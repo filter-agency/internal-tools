@@ -16,6 +16,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
@@ -399,6 +400,26 @@ class WeekView extends Component
             return false;
         }
 
+        session()->forget('week_saved');
+        $this->resetErrorBag();
+        $errors = [];
+        foreach ($this->cellValues as $rowKey => $perDay) {
+            for ($i = 0; $i < 7; $i++) {
+                $raw = trim((string) ($perDay[$i] ?? ''));
+                if ($raw === '' || $raw === '0' || $raw === '0:00') {
+                    continue;
+                }
+                try {
+                    HoursParser::parse($raw);
+                } catch (\InvalidArgumentException $exception) {
+                    $errors["cellValues.{$rowKey}.{$i}"] = $exception->getMessage();
+                }
+            }
+        }
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
+
         $user = $this->viewedUser();
         $service = app(TimeEntryService::class);
         $weekStart = CarbonImmutable::parse($this->selectedDate)->startOfWeek();
@@ -439,11 +460,7 @@ class WeekView extends Component
                     continue;
                 }
 
-                try {
-                    $hours = HoursParser::parse($raw);
-                } catch (\InvalidArgumentException) {
-                    continue; // skip invalid input silently
-                }
+                $hours = HoursParser::parse($raw);
 
                 if ($existingForCell->isNotEmpty()) {
                     $storedTotal = round((float) $existingForCell->sum(fn (TimeEntry $entry) => (float) $entry->hours), 2);
@@ -552,7 +569,7 @@ class WeekView extends Component
         foreach ($this->extraRows as $rowKey) {
             TimesheetExtraRow::firstOrCreate([
                 'user_id' => $userId,
-                'week_start' => $weekStartDate,
+                'week_start' => $weekStart->startOfDay(),
                 'row_key' => $rowKey,
             ]);
         }

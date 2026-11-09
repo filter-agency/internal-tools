@@ -2,13 +2,17 @@
 
 namespace App\Domain\TimeTracking;
 
+use App\Domain\Billing\RateResolution;
 use App\Domain\Billing\RateResolver;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\TimeEntry;
 use App\Models\User;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 final class TimeEntryService
 {
@@ -24,6 +28,7 @@ final class TimeEntryService
         return DB::transaction(function () use ($user, $data): TimeEntry {
             $project = Project::with(['tasks', 'users'])->findOrFail($data['project_id']);
             $task = Task::findOrFail($data['task_id']);
+            $this->ensureAssignment($user, $project, $task);
 
             $resolution = $this->rateResolver->resolveWithHours($project, $task, $user, $data['hours']);
 
@@ -48,7 +53,7 @@ final class TimeEntryService
      */
     public function update(TimeEntry $entry, array $data): TimeEntry
     {
-        return DB::transaction(function () use ($entry, $data): TimeEntry {
+        return app(MonthLockGuard::class)->withEntryWrites([$entry], function () use ($entry, $data): TimeEntry {
             $projectId = $data['project_id'] ?? $entry->project_id;
             $taskId = $data['task_id'] ?? $entry->task_id;
             $hours = $data['hours'] ?? (float) $entry->hours;
@@ -57,7 +62,14 @@ final class TimeEntryService
             $task = Task::findOrFail($taskId);
             $user = $entry->user;
 
-            $resolution = $this->rateResolver->resolveWithHours($project, $task, $user, $hours);
+            $destinationChanged = $project->id !== $entry->project_id || $task->id !== $entry->task_id;
+            if ($destinationChanged) {
+                $this->ensureAssignment($user, $project, $task);
+            }
+
+            $resolution = $destinationChanged
+                ? $this->rateResolver->resolveWithHours($project, $task, $user, $hours)
+                : $this->savedBilling($entry, $hours);
 
             $update = [
                 'project_id' => $project->id,
@@ -79,13 +91,13 @@ final class TimeEntryService
             $entry->refresh();
 
             return $entry;
-        });
+        }, isset($data['project_id']) ? [(int) $data['project_id']] : []);
     }
 
     public function delete(TimeEntry $entry): void
     {
         // One transaction, so a refused delete does not leave the timer stopped.
-        DB::transaction(function () use ($entry): void {
+        app(MonthLockGuard::class)->withEntryWrite($entry, function () use ($entry): void {
             if ($entry->is_running) {
                 $entry->update(['is_running' => false, 'timer_started_at' => null]);
             }
@@ -95,63 +107,96 @@ final class TimeEntryService
 
     public function startTimer(TimeEntry $entry): void
     {
-        // Transaction + row lock: prevents two concurrent requests racing to
-        // start a second timer for the same user simultaneously.
         DB::transaction(function () use ($entry): void {
-            // Re-fetch with lock so concurrent calls queue behind this one
-            $locked = TimeEntry::lockForUpdate()->find($entry->id);
-            if ($locked === null || $locked->is_running) {
-                return; // already running or deleted
+            // Starts and stops share this lock, including starts on different entries.
+            app(MonthLockGuard::class)->lockUsers([$entry->user_id], exclusive: true);
+            $target = TimeEntry::find($entry->id);
+            if ($target === null) {
+                $entry->exists = false;
+
+                return;
             }
+            $running = TimeEntry::query()->where('user_id', $target->user_id)
+                ->where('is_running', true)->where('id', '!=', $target->id)->get();
 
-            // Auto-stop any other running timer for this user
-            TimeEntry::where('user_id', $entry->user_id)
-                ->where('is_running', true)
-                ->where('id', '!=', $entry->id)
-                ->lockForUpdate()
-                ->each(fn (TimeEntry $running) => $this->stopTimer($running));
+            // Acquire every affected client before locking any entry, including
+            // the previous timer when it belongs to a different client.
+            app(MonthLockGuard::class)->withEntryWrites([$target, ...$running->all()], function () use ($target, $running): void {
+                if ($target->is_running) {
+                    return;
+                }
+                foreach ($running as $other) {
+                    $this->stopTimer($other);
+                }
+                $target->update(['is_running' => true, 'timer_started_at' => Carbon::now()]);
+            });
 
-            $locked->update([
-                'is_running' => true,
-                'timer_started_at' => Carbon::now(),
-            ]);
+            $entry->setRawAttributes($target->getAttributes(), sync: true)->unsetRelations();
         });
-
-        $entry->refresh();
     }
 
-    public function stopTimer(TimeEntry $entry): void
+    public function stopTimer(TimeEntry $entry): ?TimeEntry
     {
-        if (! $entry->is_running || $entry->timer_started_at === null) {
-            return;
+        try {
+            return DB::transaction(function () use ($entry): ?TimeEntry {
+                app(MonthLockGuard::class)->lockUsers([$entry->user_id], exclusive: true);
+                $current = TimeEntry::find($entry->id);
+                if ($current === null) {
+                    $entry->exists = false;
+
+                    return null;
+                }
+                if ($current->is_running && $current->timer_started_at !== null) {
+                    app(MonthLockGuard::class)->withEntryWrite($current, function () use ($current): void {
+                        $elapsedSeconds = $current->timer_started_at->diffInSeconds(Carbon::now(), false);
+                        $newHours = round((float) $current->hours + max(0.0, $elapsedSeconds) / 3600, 2);
+                        $newHours = max(0.01, min(24.0, $newHours));
+                        $resolution = $this->savedBilling($current, $newHours);
+                        $current->update([
+                            'hours' => $newHours, 'is_running' => false, 'timer_started_at' => null,
+                            'is_billable' => $resolution->isBillable,
+                            'billable_rate_snapshot' => $resolution->rateSnapshot,
+                            'billable_amount' => $resolution->billableAmount,
+                        ]);
+                    });
+                }
+                $entry->setRawAttributes($current->getAttributes(), sync: true)->unsetRelations();
+
+                return $entry;
+            });
+        } catch (ModelNotFoundException $exception) {
+            if ($exception->getModel() !== TimeEntry::class) {
+                throw $exception;
+            }
+            $entry->exists = false;
+
+            return null;
+        }
+    }
+
+    private function ensureAssignment(User $user, Project $project, Task $task): void
+    {
+        $actor = auth()->user() ?? auth('api')->user();
+        if (! $project->users->contains('id', $user->id) && ! ($actor instanceof User && $actor->is_active && $actor->isAdmin())) {
+            throw new AuthorizationException('The time entry user is not assigned to this project.');
         }
 
-        // A transaction, like the other writes, so a stop made under a month
-        // lock override is atomic with its change log.
-        DB::transaction(function () use ($entry): void {
-            // Signed diff so clock skew (timer_started_at in the future) yields a negative
-            // elapsed instead of being silently flipped positive.
-            $elapsedSeconds = $entry->timer_started_at->diffInSeconds(Carbon::now(), false);
-            $elapsed = max(0.0, $elapsedSeconds) / 3600;
-            $newHours = round((float) $entry->hours + $elapsed, 2);
-            $newHours = max(0.01, min(24.0, $newHours));
+        if (! $project->tasks->contains('id', $task->id)) {
+            throw ValidationException::withMessages(['task_id' => 'The selected task is not assigned to this project.']);
+        }
+    }
 
-            /** @var Project $project */
-            $project = $entry->project()->with(['tasks', 'users'])->firstOrFail();
-            $task = $entry->task;
-            $user = $entry->user;
+    private function savedBilling(TimeEntry $entry, float $hours): RateResolution
+    {
+        $rate = $entry->billable_rate_snapshot === null ? null : (float) $entry->billable_rate_snapshot;
 
-            $resolution = $this->rateResolver->resolveWithHours($project, $task, $user, $newHours);
-
-            $entry->update([
-                'hours' => $newHours,
-                'is_running' => false,
-                'timer_started_at' => null,
-                'is_billable' => $resolution->isBillable,
-                'billable_rate_snapshot' => $resolution->rateSnapshot,
-                'billable_amount' => $resolution->billableAmount,
-            ]);
-        });
+        return new RateResolution(
+            isBillable: $entry->is_billable,
+            rateSnapshot: $rate,
+            billableAmount: $hours === (float) $entry->hours
+                ? (float) $entry->billable_amount
+                : ($entry->is_billable && $rate !== null ? round($hours * $rate, 2) : 0.0),
+        );
     }
 
     public function currentHours(TimeEntry $entry, ?Carbon $now = null): float

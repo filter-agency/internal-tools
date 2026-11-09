@@ -42,9 +42,16 @@
         <div class="mb-4 px-4 py-2 bg-green-50 border border-green-200 rounded text-sm text-green-700">{{ session('copy_rows_message') }}</div>
     @endif
 
-    {{-- Day header --}}
-    <div class="flex items-center justify-between mb-4">
-        <div class="flex items-center gap-3">
+    {{-- Week header — shares the Day view's action and date styling. --}}
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div class="flex flex-wrap items-center gap-3">
+            @unless($isReadOnly)
+                <button wire:click="openAddRowModal"
+                        class="inline-flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    Add row
+                </button>
+            @endunless
             <div class="inline-flex items-center">
                 <button wire:click="previousWeek"
                         class="flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition text-gray-500 hover:text-gray-800 shadow-sm"
@@ -116,12 +123,18 @@
         </div>
     </div>
 
+    @if($errors->has('cellValues.*'))
+        <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+            Check the highlighted hours. Use hours and minutes (1:30) or decimal hours (1.5), up to 24 hours per cell.
+        </div>
+    @endif
+
     {{-- Week table --}}
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
         <table class="min-w-full text-sm">
-            <thead class="bg-gray-50 border-b border-gray-200">
+            <thead class="bg-white border-b border-gray-200">
                 <tr>
-                    <th class="px-4 py-3 text-left font-medium text-gray-600" style="min-width: 280px;">Project &amp; task</th>
+                    <th class="px-4 py-3 text-left font-medium text-gray-600" style="min-width: 224px;">Project &amp; task</th>
                     @foreach($weekDays as $day)
                         @php
                             $dayDate = $day->toDateString();
@@ -135,10 +148,12 @@
                                 data-week-day-link
                                 data-unsaved-week-guard
                                 @click="confirmWeekDayNavigation($event)"
-                                class="block rounded-md px-2 py-1 transition hover:bg-white hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500"
+                                aria-label="{{ $day->format('l j F Y') }}"
+                                aria-current="{{ $day->isToday() ? 'date' : 'false' }}"
+                                class="flex flex-col items-center rounded-lg px-2 py-1 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500"
                             >
-                                <div class="text-xs uppercase tracking-wide">{{ $day->format('D') }}</div>
-                                <div class="text-sm">{{ $day->format('j M') }}</div>
+                                <span class="text-xs text-gray-500 uppercase tracking-wide">{{ $day->format('D') }}</span>
+                                <span class="mt-1 flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium {{ $day->isToday() ? 'bg-green-600 text-white' : 'text-gray-700' }}">{{ $day->format('j') }}</span>
                             </a>
                         </th>
                     @endforeach
@@ -168,9 +183,9 @@
                             $rowTotal += max($hours, (float) ($runningCells[$i] ?? 0.0));
                         }
                     @endphp
-                    <tr wire:key="week-row-{{ $row['key'] }}" class="hover:bg-gray-50">
+                    <tr wire:key="week-row-{{ $row['key'] }}" class="hover:bg-gray-50/50">
                         <td class="px-4 py-3">
-                            <div class="font-medium text-gray-900">{{ $row['project_name'] }}
+                            <div class="font-semibold text-gray-900">{{ $row['project_name'] }}
                                 @if($row['client_name'])
                                     <span class="text-xs text-gray-400 ml-1">({{ $row['client_name'] }})</span>
                                 @endif
@@ -192,10 +207,19 @@
                                            wire:model.live.blur="cellValues.{{ $row['key'] }}.{{ $i }}"
                                            value="{{ $cells[$i] ?? '' }}"
                                            placeholder="—"
+                                           aria-label="{{ $row['project_name'] }}: {{ $row['task_name'] }}, {{ $weekDays[$i]->format('l j F') }}"
+                                           aria-invalid="{{ $errors->has('cellValues.'.$row['key'].'.'.$i) ? 'true' : 'false' }}"
+                                           @if($errors->has('cellValues.'.$row['key'].'.'.$i))
+                                               aria-describedby="week-error-{{ $row['key'] }}-{{ $i }}"
+                                               title="{{ $errors->first('cellValues.'.$row['key'].'.'.$i) }}"
+                                           @endif
                                            @input="markWeekDirty()"
                                            @change="markWeekDirty()"
                                            @disabled($cellLocks[$i])
-                                           class="w-full text-center text-sm tabular-nums border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent {{ $cellLocks[$i] ? 'bg-gray-50 text-gray-400 cursor-not-allowed' : '' }}">
+                                           class="w-full text-center text-sm tabular-nums border rounded-lg px-2 py-2 transition focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent {{ $errors->has('cellValues.'.$row['key'].'.'.$i) ? 'border-red-500 bg-red-50 text-red-900' : 'border-gray-200 bg-white' }} {{ $cellLocks[$i] ? 'text-gray-400 cursor-not-allowed' : 'hover:border-gray-300' }}">
+                                    @error('cellValues.'.$row['key'].'.'.$i)
+                                        <span id="week-error-{{ $row['key'] }}-{{ $i }}" class="sr-only">{{ $message }}</span>
+                                    @enderror
                                 @endif
                                 @if($cellLocks[$i])
                                     <div class="mt-1 text-center"><x-month-lock-badge :lock="$cellLocks[$i]" /></div>
@@ -218,11 +242,21 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="{{ $isReadOnly ? 9 : 10 }}" class="px-4 py-12 text-center text-gray-400 text-sm">
-                            No time logged this week.
-                            @unless($isReadOnly)
-                                Click <strong>+ Add row</strong> to start.
-                            @endunless
+                        <td colspan="{{ $isReadOnly ? 9 : 10 }}"
+                            wire:key="week-empty-{{ $selectedDate }}"
+                            class="bg-gray-100 px-8 py-16 text-center text-sm"
+                            x-data="{ song: null }"
+                            x-init="fetch('/timesheet/song/{{ $selectedDate }}').then(r => r.json()).then(d => song = d).catch(() => {})">
+                            <div x-show="song" x-cloak>
+                                <p class="text-lg italic text-gray-500" x-text="'&quot;' + (song?.song_name ?? '') + '&quot;'"></p>
+                                <p class="mt-2 text-sm text-gray-400" x-text="(song?.album ?? '') + ' · ' + (song?.year ?? '') + ' · Depeche Mode'"></p>
+                            </div>
+                            <div x-show="!song">
+                                <p class="font-medium text-gray-600">No time logged this week.</p>
+                                @unless($isReadOnly)
+                                    <p class="mt-2 text-gray-400">Add a project and task to start filling in your week.</p>
+                                @endunless
+                            </div>
                         </td>
                     </tr>
                 @endforelse
@@ -247,28 +281,29 @@
     </div>
 
     @unless($isReadOnly)
-        <div class="mt-4 flex items-center gap-3">
-            @if($canCopyRowsFromPriorWeek)
-                <button wire:click="copyRowsFromMostRecentWeek"
-                        class="inline-flex items-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"/>
-                    </svg>
-                    Copy rows from most recent week
+        <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-3">
+                @if($canCopyRowsFromPriorWeek)
+                    <button wire:click="copyRowsFromMostRecentWeek"
+                            class="inline-flex items-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"/>
+                        </svg>
+                        Copy rows from most recent week
+                    </button>
+                @endif
+            </div>
+            <div class="ml-auto flex items-center gap-4">
+                <span class="text-sm text-gray-500">Week: <span class="ml-1 font-semibold tabular-nums text-gray-800">{{ \App\Domain\TimeTracking\HoursFormatter::format((float) $weekTotal, $hoursFormat) }}</span></span>
+                <button type="button"
+                        @click="$wire.save().then((saved) => { if (saved) clearWeekDirty(); })"
+                        class="inline-flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition">
+                    Save
                 </button>
-            @endif
-            <button wire:click="openAddRowModal"
-                    class="inline-flex items-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                Add row
-            </button>
-            <button type="button"
-                    @click="$wire.save().then((saved) => { if (saved) clearWeekDirty(); })"
-                    class="inline-flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition">
-                Save
-            </button>
-            @error('month_lock')<p class="text-red-600 text-xs">{{ $message }}</p>@enderror
+            </div>
         </div>
+        @error('time_entry')<p class="mb-2 text-red-600 text-sm" role="alert">{{ $message }}</p>@enderror
+    @error('month_lock')<p class="mt-2 text-red-600 text-xs" role="alert">{{ $message }}</p>@enderror
     @endunless
 
     {{-- Add row modal — mirrors the Day view's Track Time modal --}}

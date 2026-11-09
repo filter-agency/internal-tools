@@ -31,9 +31,9 @@ class TimesheetCompletionService
 
     public function monthlyTarget(User $user, CarbonInterface $monthStart): float
     {
-        $workingDays = $this->workingDaysInMonth($monthStart);
+        $start = CarbonImmutable::instance($monthStart)->startOfMonth();
 
-        return round(($user->effectiveWeeklyTarget() / 5) * $workingDays, 2);
+        return $this->scheduleAvailability->capacityForPeriod($user, $start, $start->endOfMonth());
     }
 
     public function monthlyHoursLogged(User $user, CarbonInterface $monthStart): float
@@ -107,14 +107,13 @@ class TimesheetCompletionService
     {
         $start = CarbonImmutable::instance($monthStart)->startOfMonth();
         $end = $start->endOfMonth();
-        $workingDays = $this->workingDaysInMonth($start);
 
         $users = User::query()->notificationsActive()->orderBy('name')->get();
 
         $totals = $this->aggregateHours($users->pluck('id')->all(), $start, $end);
 
-        return $users->map(function (User $user) use ($totals, $workingDays) {
-            $target = round(($user->effectiveWeeklyTarget() / 5) * $workingDays, 2);
+        return $users->map(function (User $user) use ($totals, $start) {
+            $target = $this->monthlyTarget($user, $start);
             $hours = (float) ($totals[$user->id] ?? 0.0);
 
             return compact('user', 'hours', 'target');
@@ -141,20 +140,5 @@ class TimesheetCompletionService
             ->pluck('hours', 'user_id')
             ->map(fn ($hours) => (float) $hours)
             ->all();
-    }
-
-    private function workingDaysInMonth(CarbonInterface $monthStart): int
-    {
-        $start = CarbonImmutable::instance($monthStart)->startOfMonth();
-        $end = $start->endOfMonth();
-
-        $days = 0;
-        for ($cursor = $start; $cursor <= $end; $cursor = $cursor->addDay()) {
-            if (! $cursor->isWeekend()) {
-                $days++;
-            }
-        }
-
-        return $days;
     }
 }

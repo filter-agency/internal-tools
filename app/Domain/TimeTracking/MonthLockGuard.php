@@ -2,6 +2,7 @@
 
 namespace App\Domain\TimeTracking;
 
+use App\Models\Client;
 use App\Models\MonthLock;
 use App\Models\MonthLockOverride;
 use App\Models\MonthLockOverrideChange;
@@ -10,6 +11,9 @@ use App\Models\TimeEntry;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Closure;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use WeakMap;
@@ -49,6 +53,121 @@ final class MonthLockGuard
     public function __construct()
     {
         $this->authorised = new WeakMap;
+    }
+
+    /**
+     * @template TReturn
+     *
+     * @param  Closure(): TReturn  $write
+     * @return TReturn
+     */
+    public function withEntryWrite(TimeEntry $entry, Closure $write): mixed
+    {
+        return $this->withEntryWrites([$entry], $write);
+    }
+
+    /**
+     * All writers take users, then clients, projects and entries, in ID order.
+     * Read each existing row again under lock and reject outdated snapshots.
+     *
+     * @template TReturn
+     *
+     * @param  list<TimeEntry>  $entries
+     * @param  Closure(): TReturn  $write
+     * @param  list<int>  $additionalProjectIds
+     * @return TReturn
+     */
+    public function withEntryWrites(array $entries, Closure $write, array $additionalProjectIds = []): mixed
+    {
+        return DB::transaction(function () use ($entries, $write, $additionalProjectIds) {
+            $projectIds = $additionalProjectIds;
+            $userIds = [];
+            foreach ($entries as $entry) {
+                array_push($projectIds, (int) $entry->getRawOriginal('project_id'), (int) $entry->project_id);
+                array_push($userIds, (int) $entry->getRawOriginal('user_id'), $entry->user_id);
+            }
+            $this->lockUsers($userIds);
+            $projectIds = array_values(array_unique(array_filter($projectIds)));
+            $expectedClients = Project::query()->whereIn('id', $projectIds)->pluck('client_id', 'id')->all();
+            $this->lockClients(array_values($expectedClients));
+            $projects = Project::query()->whereIn('id', $projectIds)->orderBy('id')->sharedLock()->get(['id', 'client_id']);
+            foreach ($projects as $project) {
+                if ((int) ($expectedClients[$project->id] ?? 0) !== $project->client_id) {
+                    throw ValidationException::withMessages(['time_entry' => 'This project changed while you were editing. Reload the timesheet and try again.']);
+                }
+                $this->projectClients[$project->id] = $project->client_id;
+            }
+
+            $ids = array_map(fn (TimeEntry $entry): int => (int) $entry->id, array_filter($entries, fn (TimeEntry $entry): bool => $entry->exists));
+            $storedEntries = TimeEntry::query()->whereIn('id', $ids)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            foreach ($entries as $entry) {
+                if (! $entry->exists) {
+                    continue;
+                }
+                $stored = $storedEntries->get($entry->id);
+                if ($stored === null) {
+                    throw (new ModelNotFoundException)->setModel(TimeEntry::class, [$entry->id]);
+                }
+                if ($this->entryState($entry) !== $this->entryState($stored)) {
+                    throw ValidationException::withMessages(['time_entry' => 'This time entry changed while you were editing. Reload the timesheet and try again.']);
+                }
+            }
+
+            return $write();
+        });
+    }
+
+    /**
+     * Acquire inside the write transaction, before clients or entries. Shared
+     * locks cover user foreign keys; timers need exclusive per-user ownership.
+     *
+     * @param  list<int>  $userIds
+     */
+    public function lockUsers(array $userIds, bool $exclusive = false): void
+    {
+        if (($actor = $this->actor()) !== null) {
+            $userIds[] = $actor->id;
+        }
+
+        User::query()->whereIn('id', array_unique(array_filter($userIds)))->orderBy('id')
+            ->when($exclusive, fn ($query) => $query->lockForUpdate(), fn ($query) => $query->sharedLock())
+            ->get(['id']);
+    }
+
+    /** @return array<string, mixed> */
+    private function entryState(TimeEntry $entry): array
+    {
+        $state = $this->lockedValues($entry, original: true);
+        $state['is_running'] = (bool) $state['is_running'];
+        $state['timer_started_at'] = $entry->getOriginal('timer_started_at')?->toIso8601String();
+        $state['asana_task_gid'] = $entry->getOriginal('asana_task_gid');
+
+        return $state;
+    }
+
+    /**
+     * @template TReturn
+     *
+     * @param  Closure(): TReturn  $write
+     * @return TReturn
+     */
+    public function withProjectClientWrite(Project $project, Closure $write): mixed
+    {
+        return DB::transaction(function () use ($project, $write) {
+            $this->lockClients([(int) $project->getOriginal('client_id'), $project->client_id]);
+            $stored = Project::query()->whereKey($project->id)->lockForUpdate()->firstOrFail();
+            if ($stored->client_id !== (int) $project->getOriginal('client_id')) {
+                throw ValidationException::withMessages(['client_id' => 'This project changed while you were editing. Reload it and try again.']);
+            }
+
+            return $write();
+        });
+    }
+
+    /** @param list<int> $clientIds */
+    private function lockClients(array $clientIds): void
+    {
+        Client::query()->whereIn('id', $clientIds)->orderBy('id')->lockForUpdate()->get(['id']);
     }
 
     /**
@@ -106,6 +225,7 @@ final class MonthLockGuard
         $locks = MonthLock::query()
             ->with('client')
             ->whereIn('client_id', $clientIds)
+            ->lockForUpdate()
             ->orderBy('month')
             ->orderBy('client_id')
             ->get();
@@ -117,9 +237,10 @@ final class MonthLockGuard
                 ->where('project_id', $project->id)
                 ->where('spent_on', '>=', $start->toDateString())
                 ->where('spent_on', '<', $start->addMonth()->toDateString())
-                ->exists();
+                ->lockForUpdate()
+                ->first(['id']);
 
-            if ($hasTime) {
+            if ($hasTime !== null) {
                 throw ValidationException::withMessages([
                     'client_id' => "This project has time in {$lock->label()}, which is locked for {$lock->client->name}, so its client cannot be changed.",
                 ]);
@@ -129,7 +250,7 @@ final class MonthLockGuard
         unset($this->projectClients[$project->id]);
     }
 
-    public function lockFor(int $clientId, CarbonInterface $date): ?MonthLock
+    public function lockFor(int $clientId, CarbonInterface $date, bool $currentRead = false): ?MonthLock
     {
         $start = CarbonImmutable::instance($date)->startOfMonth();
 
@@ -138,6 +259,7 @@ final class MonthLockGuard
             ->where('client_id', $clientId)
             ->where('month', '>=', $start->toDateString())
             ->where('month', '<', $start->addMonth()->toDateString())
+            ->when($currentRead, fn ($query) => $query->lockForUpdate())
             ->first();
     }
 
@@ -235,7 +357,7 @@ final class MonthLockGuard
 
         $locks = [];
         foreach ($clientMonths as [$clientId, $spentOn]) {
-            $lock = $this->lockFor($clientId, $spentOn);
+            $lock = $this->lockFor($clientId, $spentOn, currentRead: true);
 
             if ($lock !== null) {
                 $locks[] = $lock;

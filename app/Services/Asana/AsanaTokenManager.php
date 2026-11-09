@@ -88,8 +88,12 @@ final class AsanaTokenManager
                 'body' => $response->body(),
             ], $user);
 
-            $this->disconnect($user);
-            $this->recordConnectionLost($user);
+            // Only a revoked/invalid refresh token requires a new connection.
+            // Rate limits and upstream failures must keep the working credentials.
+            if ($response->status() === 400 && $response->json('error') === 'invalid_grant') {
+                $this->disconnect($user);
+                $this->recordConnectionLost($user);
+            }
 
             return null;
         }

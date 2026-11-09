@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AppVersionHeader;
+use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\RestrictFrameAncestors;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
@@ -57,7 +58,7 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->redirectGuestsTo(fn () => route('auth.login'));
-        $middleware->web(append: [RestrictFrameAncestors::class, AppVersionHeader::class]);
+        $middleware->web(append: [EnsureUserIsActive::class, RestrictFrameAncestors::class, AppVersionHeader::class]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

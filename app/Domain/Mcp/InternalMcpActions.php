@@ -89,7 +89,11 @@ final class InternalMcpActions
 
         $this->timeEntries->startTimer($entry);
 
-        return $entry->refresh();
+        if (! $entry->exists) {
+            throw ValidationException::withMessages(['timer' => 'This time entry was deleted before its timer could start.']);
+        }
+
+        return $entry;
     }
 
     public function stopTimer(User $actor): TimeEntry
@@ -104,9 +108,12 @@ final class InternalMcpActions
             throw ValidationException::withMessages(['timer' => 'No running timer exists for the authenticated user.']);
         }
 
-        $this->timeEntries->stopTimer($entry);
+        $stopped = $this->timeEntries->stopTimer($entry);
+        if ($stopped === null) {
+            throw ValidationException::withMessages(['timer' => 'No running timer exists for the authenticated user.']);
+        }
 
-        return $entry->refresh();
+        return $stopped;
     }
 
     public function runningTimer(User $actor): ?TimeEntry
