@@ -170,8 +170,13 @@ class AsanaLogTime extends Component
             return;
         }
 
-        app(TimeEntryService::class)->stopTimer($entry);
-        $entry->refresh();
+        $entry = app(TimeEntryService::class)->stopTimer($entry);
+        if ($entry === null) {
+            $this->timerStarted = false;
+            $this->savedSummary = 'This time entry was already deleted.';
+
+            return;
+        }
 
         $this->savedSummary = sprintf(
             'Timer stopped — %s logged to %s — %s.',

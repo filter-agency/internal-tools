@@ -198,7 +198,7 @@ function onProjectChange(e) {
   // Asana picker visibility.
   const asanaSelect = $('asana-select');
   asanaSelect.innerHTML = '<option value="">— Select an Asana task —</option>';
-  if (project.asana_project_gid) {
+  if (project.asana_project_gids?.length) {
     project.asana_tasks.forEach((t) => {
       const opt = document.createElement('option');
       opt.value = t.gid;
@@ -228,7 +228,7 @@ function validateForSubmission() {
   if (!state.selectedProjectId) return 'Pick a project first.';
   if (!state.selectedTaskId) return 'Pick a task first.';
   const project = currentProject();
-  if (project && project.asana_project_gid && !state.selectedAsanaTaskGid) {
+  if (project && project.asana_project_gids?.length && project.asana_task_required && !state.selectedAsanaTaskGid) {
     return 'This project is Asana-linked — pick an Asana task.';
   }
   return null;

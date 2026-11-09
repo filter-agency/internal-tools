@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Casts\Decimal;
+use App\Domain\TimeTracking\MonthLockGuard;
 use Database\Factories\TimeEntryFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -46,6 +47,17 @@ class TimeEntry extends Model
         'billable_amount', 'invoiced_at', 'external_reference',
         'asana_task_gid', 'asana_synced_at', 'asana_sync_error', 'asana_sync_error_code',
     ];
+
+    /** @param array<string, mixed> $options */
+    public function save(array $options = []): bool
+    {
+        return app(MonthLockGuard::class)->withEntryWrite($this, fn () => parent::save($options));
+    }
+
+    public function delete(): ?bool
+    {
+        return app(MonthLockGuard::class)->withEntryWrite($this, fn () => parent::delete());
+    }
 
     protected function casts(): array
     {

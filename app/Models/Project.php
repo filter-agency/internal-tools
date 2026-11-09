@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Casts\Decimal;
+use App\Domain\TimeTracking\MonthLockGuard;
 use App\Enums\BudgetType;
 use App\Enums\JdwCategory;
 use Database\Factories\ProjectFactory;
@@ -89,6 +90,16 @@ class Project extends Model
     protected $attributes = [
         'asana_task_required' => true,
     ];
+
+    /** @param array<string, mixed> $options */
+    public function save(array $options = []): bool
+    {
+        if (! $this->exists || ! $this->isDirty('client_id')) {
+            return parent::save($options);
+        }
+
+        return app(MonthLockGuard::class)->withProjectClientWrite($this, fn () => parent::save($options));
+    }
 
     protected function casts(): array
     {

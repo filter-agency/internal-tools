@@ -32,6 +32,7 @@ use App\Livewire\Reports\TeamOverviewReport;
 use App\Livewire\Reports\TeamReport;
 use App\Livewire\Reports\TimeReport;
 use App\Livewire\Schedule\ScheduleBoard;
+use App\Livewire\TellPaul;
 use App\Livewire\Timesheet\DayView;
 use App\Livewire\Timesheet\WeekView;
 use App\Models\User;
@@ -77,6 +78,7 @@ Route::middleware('auth')->group(function () {
     // overlay iframe on app.asana.com (also target of legacy Asana
     // attachment cards).
     Route::get('/asana-app/tasks/{taskGid}', AsanaLogTime::class)->name('asana-app.tasks.show');
+    Route::get('/tell-paul', TellPaul::class)->name('tell-paul');
     Route::get('/timesheet', DayView::class)->name('timesheet');
     Route::get('/timesheet/week', WeekView::class)->name('timesheet.week');
     Route::get('/schedule', ScheduleBoard::class)

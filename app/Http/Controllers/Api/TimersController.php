@@ -65,7 +65,9 @@ class TimersController
         ]);
 
         $service->startTimer($entry);
-        $entry->refresh();
+        if (! $entry->exists) {
+            return response()->json(['error' => 'entry_deleted'], 404);
+        }
 
         return response()->json($this->serialize($entry), 201);
     }
@@ -82,10 +84,12 @@ class TimersController
             return response()->json(['error' => 'no_running_timer'], 404);
         }
 
-        $service->stopTimer($running);
-        $running->refresh();
+        $stopped = $service->stopTimer($running);
+        if ($stopped === null) {
+            return response()->json(['error' => 'no_running_timer'], 404);
+        }
 
-        return response()->json($this->serialize($running));
+        return response()->json($this->serialize($stopped));
     }
 
     public function running(Request $request): JsonResponse
