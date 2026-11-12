@@ -13,8 +13,10 @@ use App\Observers\TimeEntryMonthLockObserver;
 use App\Observers\TimeEntryScheduleActualsObserver;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Passport\Passport;
@@ -65,5 +67,16 @@ class AppServiceProvider extends ServiceProvider
         Project::observe(ProjectMonthLockObserver::class);
 
         Notification::extend('slack', fn ($app) => $app->make(SlackChannel::class));
+
+        // A DB restart mid-transaction leaves PDO reporting an open transaction while
+        // Laravel's level is 0; Laravel won't reconnect on "already an active transaction",
+        // so the worker would fail every pop until it restarts. Reset the client instead.
+        Queue::looping(function (): void {
+            $connection = DB::connection();
+
+            if ($connection->transactionLevel() === 0 && $connection->getRawPdo() instanceof \PDO && $connection->getRawPdo()->inTransaction()) {
+                $connection->reconnect();
+            }
+        });
     }
 }
