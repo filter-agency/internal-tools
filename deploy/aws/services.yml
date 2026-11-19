@@ -1,0 +1,365 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Internal Tools - ECS task definitions and services (web, worker, scheduler, one-off)
+
+Parameters:
+  ProjectName:
+    Type: String
+  EnvName:
+    Type: String
+
+  ImageUri:
+    Type: String
+    Description: Image for the web, worker and scheduler services
+  OneOffImageUri:
+    Type: String
+    Description: Image for one-off tasks (migrations, artisan). Moves ahead of ImageUri during a release.
+
+  # --- From the infra master stack outputs ---
+  HostName:
+    Type: String
+  ClusterName:
+    Type: String
+  CapacityProviderName:
+    Type: String
+  WebTargetGroupArn:
+    Type: String
+  TaskExecutionRoleArn:
+    Type: String
+  TaskRoleArn:
+    Type: String
+  AppSecretArn:
+    Type: String
+  DbSecretArn:
+    Type: String
+  WebLogGroupName:
+    Type: String
+  WorkerLogGroupName:
+    Type: String
+  SchedulerLogGroupName:
+    Type: String
+  OneOffLogGroupName:
+    Type: String
+
+  # --- Per environment (deploy/aws/<env>.env) ---
+  WebCount:
+    Type: Number
+  WorkerCount:
+    Type: Number
+  SchedulerCount:
+    Type: Number
+    AllowedValues: [0, 1]
+    Description: Never more than one
+  WebMemory:
+    Type: Number
+    Description: MiB
+  WorkerMemory:
+    Type: Number
+  SchedulerMemory:
+    Type: Number
+  OneOffMemory:
+    Type: Number
+
+Resources:
+
+  WebTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${ProjectName}-web-${EnvName}"
+      NetworkMode: bridge
+      RequiresCompatibilities: [EC2]
+      ExecutionRoleArn: !Ref TaskExecutionRoleArn
+      TaskRoleArn: !Ref TaskRoleArn
+      ContainerDefinitions:
+        - Name: app
+          Image: !Ref ImageUri
+          Essential: true
+          MemoryReservation: !Ref WebMemory
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 0
+              Protocol: tcp
+          StopTimeout: 30
+          LinuxParameters:
+            InitProcessEnabled: true
+          Environment:
+            - { Name: APP_ENV, Value: !Ref EnvName }
+            - { Name: APP_URL, Value: !Sub "https://${HostName}" }
+            - { Name: APP_DEBUG, Value: "false" }
+            - { Name: LOG_CHANNEL, Value: stderr }
+            - { Name: DB_CONNECTION, Value: mysql }
+            - { Name: DB_PORT, Value: "3306" }
+            - { Name: CACHE_STORE, Value: database }
+            - { Name: SESSION_DRIVER, Value: database }
+            - { Name: QUEUE_CONNECTION, Value: database }
+            - { Name: MAIL_MAILER, Value: ses }
+            - { Name: AWS_DEFAULT_REGION, Value: !Ref "AWS::Region" }
+            # Maintenance mode shared by every container, not a file in one of them
+            - { Name: APP_MAINTENANCE_DRIVER, Value: cache }
+            - { Name: APP_MAINTENANCE_STORE, Value: database }
+            # DigitalOcean Spaces backups; RDS backups replace them
+            - { Name: BACKUP_SCHEDULE_ENABLED, Value: "false" }
+          Secrets:
+            - { Name: APP_SECRETS, ValueFrom: !Ref AppSecretArn }
+            - { Name: DB_HOST, ValueFrom: !Sub "${DbSecretArn}:host::" }
+            - { Name: DB_DATABASE, ValueFrom: !Sub "${DbSecretArn}:dbname::" }
+            - { Name: DB_USERNAME, ValueFrom: !Sub "${DbSecretArn}:username::" }
+            - { Name: DB_PASSWORD, ValueFrom: !Sub "${DbSecretArn}:password::" }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref WebLogGroupName
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: web
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvName
+
+  # queue:work exits after --max-time; the restart policy restarts it in place
+  WorkerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${ProjectName}-worker-${EnvName}"
+      NetworkMode: bridge
+      RequiresCompatibilities: [EC2]
+      ExecutionRoleArn: !Ref TaskExecutionRoleArn
+      TaskRoleArn: !Ref TaskRoleArn
+      ContainerDefinitions:
+        - Name: app
+          Image: !Ref ImageUri
+          Essential: true
+          User: www-data
+          MemoryReservation: !Ref WorkerMemory
+          Command: [php, artisan, "queue:work", "--sleep=3", "--tries=3", "--max-time=3600"]
+          StopTimeout: 120
+          RestartPolicy:
+            Enabled: true
+            RestartAttemptPeriod: 60
+          LinuxParameters:
+            InitProcessEnabled: true
+          Environment:
+            - { Name: APP_ENV, Value: !Ref EnvName }
+            - { Name: APP_URL, Value: !Sub "https://${HostName}" }
+            - { Name: APP_DEBUG, Value: "false" }
+            - { Name: LOG_CHANNEL, Value: stderr }
+            - { Name: DB_CONNECTION, Value: mysql }
+            - { Name: DB_PORT, Value: "3306" }
+            - { Name: CACHE_STORE, Value: database }
+            - { Name: SESSION_DRIVER, Value: database }
+            - { Name: QUEUE_CONNECTION, Value: database }
+            - { Name: MAIL_MAILER, Value: ses }
+            - { Name: AWS_DEFAULT_REGION, Value: !Ref "AWS::Region" }
+            # Maintenance mode shared by every container, not a file in one of them
+            - { Name: APP_MAINTENANCE_DRIVER, Value: cache }
+            - { Name: APP_MAINTENANCE_STORE, Value: database }
+            # DigitalOcean Spaces backups; RDS backups replace them
+            - { Name: BACKUP_SCHEDULE_ENABLED, Value: "false" }
+          Secrets:
+            - { Name: APP_SECRETS, ValueFrom: !Ref AppSecretArn }
+            - { Name: DB_HOST, ValueFrom: !Sub "${DbSecretArn}:host::" }
+            - { Name: DB_DATABASE, ValueFrom: !Sub "${DbSecretArn}:dbname::" }
+            - { Name: DB_USERNAME, ValueFrom: !Sub "${DbSecretArn}:username::" }
+            - { Name: DB_PASSWORD, ValueFrom: !Sub "${DbSecretArn}:password::" }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref WorkerLogGroupName
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: worker
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvName
+
+  SchedulerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${ProjectName}-scheduler-${EnvName}"
+      NetworkMode: bridge
+      RequiresCompatibilities: [EC2]
+      ExecutionRoleArn: !Ref TaskExecutionRoleArn
+      TaskRoleArn: !Ref TaskRoleArn
+      ContainerDefinitions:
+        - Name: app
+          Image: !Ref ImageUri
+          Essential: true
+          User: www-data
+          MemoryReservation: !Ref SchedulerMemory
+          Command: [php, artisan, "schedule:work"]
+          StopTimeout: 60
+          LinuxParameters:
+            InitProcessEnabled: true
+          Environment:
+            - { Name: APP_ENV, Value: !Ref EnvName }
+            - { Name: APP_URL, Value: !Sub "https://${HostName}" }
+            - { Name: APP_DEBUG, Value: "false" }
+            - { Name: LOG_CHANNEL, Value: stderr }
+            - { Name: DB_CONNECTION, Value: mysql }
+            - { Name: DB_PORT, Value: "3306" }
+            - { Name: CACHE_STORE, Value: database }
+            - { Name: SESSION_DRIVER, Value: database }
+            - { Name: QUEUE_CONNECTION, Value: database }
+            - { Name: MAIL_MAILER, Value: ses }
+            - { Name: AWS_DEFAULT_REGION, Value: !Ref "AWS::Region" }
+            # Maintenance mode shared by every container, not a file in one of them
+            - { Name: APP_MAINTENANCE_DRIVER, Value: cache }
+            - { Name: APP_MAINTENANCE_STORE, Value: database }
+            # DigitalOcean Spaces backups; RDS backups replace them
+            - { Name: BACKUP_SCHEDULE_ENABLED, Value: "false" }
+          Secrets:
+            - { Name: APP_SECRETS, ValueFrom: !Ref AppSecretArn }
+            - { Name: DB_HOST, ValueFrom: !Sub "${DbSecretArn}:host::" }
+            - { Name: DB_DATABASE, ValueFrom: !Sub "${DbSecretArn}:dbname::" }
+            - { Name: DB_USERNAME, ValueFrom: !Sub "${DbSecretArn}:username::" }
+            - { Name: DB_PASSWORD, ValueFrom: !Sub "${DbSecretArn}:password::" }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref SchedulerLogGroupName
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: scheduler
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvName
+
+  # Run with a command override: migrations, queue:await-idle, artisan
+  OneOffTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${ProjectName}-oneoff-${EnvName}"
+      NetworkMode: bridge
+      RequiresCompatibilities: [EC2]
+      ExecutionRoleArn: !Ref TaskExecutionRoleArn
+      TaskRoleArn: !Ref TaskRoleArn
+      ContainerDefinitions:
+        - Name: app
+          Image: !Ref OneOffImageUri
+          Essential: true
+          User: www-data
+          MemoryReservation: !Ref OneOffMemory
+          Command: [php, artisan, about]
+          LinuxParameters:
+            InitProcessEnabled: true
+          Environment:
+            - { Name: APP_ENV, Value: !Ref EnvName }
+            - { Name: APP_URL, Value: !Sub "https://${HostName}" }
+            - { Name: APP_DEBUG, Value: "false" }
+            - { Name: LOG_CHANNEL, Value: stderr }
+            - { Name: DB_CONNECTION, Value: mysql }
+            - { Name: DB_PORT, Value: "3306" }
+            - { Name: CACHE_STORE, Value: database }
+            - { Name: SESSION_DRIVER, Value: database }
+            - { Name: QUEUE_CONNECTION, Value: database }
+            - { Name: MAIL_MAILER, Value: ses }
+            - { Name: AWS_DEFAULT_REGION, Value: !Ref "AWS::Region" }
+            # Maintenance mode shared by every container, not a file in one of them
+            - { Name: APP_MAINTENANCE_DRIVER, Value: cache }
+            - { Name: APP_MAINTENANCE_STORE, Value: database }
+            # DigitalOcean Spaces backups; RDS backups replace them
+            - { Name: BACKUP_SCHEDULE_ENABLED, Value: "false" }
+          Secrets:
+            - { Name: APP_SECRETS, ValueFrom: !Ref AppSecretArn }
+            - { Name: DB_HOST, ValueFrom: !Sub "${DbSecretArn}:host::" }
+            - { Name: DB_DATABASE, ValueFrom: !Sub "${DbSecretArn}:dbname::" }
+            - { Name: DB_USERNAME, ValueFrom: !Sub "${DbSecretArn}:username::" }
+            - { Name: DB_PASSWORD, ValueFrom: !Sub "${DbSecretArn}:password::" }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref OneOffLogGroupName
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: oneoff
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvName
+
+  # New tasks start before old ones stop; rolls back if they fail health checks
+  WebService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ProjectName}-web-${EnvName}"
+      Cluster: !Ref ClusterName
+      TaskDefinition: !Ref WebTaskDefinition
+      DesiredCount: !Ref WebCount
+      CapacityProviderStrategy:
+        - CapacityProvider: !Ref CapacityProviderName
+          Weight: 1
+      LoadBalancers:
+        - ContainerName: app
+          ContainerPort: 80
+          TargetGroupArn: !Ref WebTargetGroupArn
+      HealthCheckGracePeriodSeconds: 60
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      PlacementStrategies:
+        - Type: binpack
+          Field: memory
+      EnableExecuteCommand: true
+      PropagateTags: SERVICE
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvName
+
+  # Old workers stop (finishing their job) before new ones start
+  WorkerService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ProjectName}-worker-${EnvName}"
+      Cluster: !Ref ClusterName
+      TaskDefinition: !Ref WorkerTaskDefinition
+      DesiredCount: !Ref WorkerCount
+      CapacityProviderStrategy:
+        - CapacityProvider: !Ref CapacityProviderName
+          Weight: 1
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      PlacementStrategies:
+        - Type: binpack
+          Field: memory
+      EnableExecuteCommand: true
+      PropagateTags: SERVICE
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvName
+
+  # Exactly one: the old scheduler stops before the new one starts
+  SchedulerService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ProjectName}-scheduler-${EnvName}"
+      Cluster: !Ref ClusterName
+      TaskDefinition: !Ref SchedulerTaskDefinition
+      DesiredCount: !Ref SchedulerCount
+      CapacityProviderStrategy:
+        - CapacityProvider: !Ref CapacityProviderName
+          Weight: 1
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      PlacementStrategies:
+        - Type: binpack
+          Field: memory
+      EnableExecuteCommand: true
+      PropagateTags: SERVICE
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvName
+
+Outputs:
+  OneOffTaskDefinitionArn:
+    Value: !Ref OneOffTaskDefinition
+  WebServiceName:
+    Value: !GetAtt WebService.Name
+  WorkerServiceName:
+    Value: !GetAtt WorkerService.Name
+  SchedulerServiceName:
+    Value: !GetAtt SchedulerService.Name

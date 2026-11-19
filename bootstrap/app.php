@@ -31,17 +31,22 @@ return Application::configure(basePath: dirname(__DIR__))
         api: __DIR__.'/../routes/api.php',
         apiPrefix: '',
         commands: __DIR__.'/../routes/console.php',
+        health: '/up',
     )
     ->withSchedule(function (Schedule $schedule): void {
+        // Off where the database has its own backups (AWS RDS).
+        $backupsEnabled = fn () => (bool) config('backup.schedule_enabled');
+
         // Nightly DB backup to DO Spaces at 02:00, then cleanup at 02:30.
-        $schedule->command('backup:run --only-db')->dailyAt('02:00');
-        $schedule->command('backup:clean')->dailyAt('02:30');
-        $schedule->command('backup:send-weekly-summary')->mondays()->at('09:00');
+        $schedule->command('backup:run --only-db')->dailyAt('02:00')->when($backupsEnabled);
+        $schedule->command('backup:clean')->dailyAt('02:30')->when($backupsEnabled);
+        $schedule->command('backup:send-weekly-summary')->mondays()->at('09:00')->when($backupsEnabled);
 
         // Restore-test on the first Saturday of each month (staging only).
         $schedule->command('backup:restore-test')
             ->weeklyOn(6, '04:00')
-            ->when(fn () => now()->day <= 7);
+            ->when(fn () => now()->day <= 7)
+            ->when($backupsEnabled);
 
         // Resolve Slack user IDs nightly so new joiners pick up the channel without manual intervention.
         $schedule->command('slack:sync-user-ids')->dailyAt('03:00');
@@ -58,6 +63,8 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->redirectGuestsTo(fn () => route('auth.login'));
+        // Load balancer health checks must pass during a deploy's maintenance window.
+        $middleware->preventRequestsDuringMaintenance(except: ['up']);
         $middleware->web(append: [EnsureUserIsActive::class, RestrictFrameAncestors::class, AppVersionHeader::class]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

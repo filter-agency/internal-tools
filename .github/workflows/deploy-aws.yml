@@ -1,0 +1,98 @@
+name: Deploy to AWS
+
+# Push to main -> staging. Production is run by hand (Actions -> Deploy to AWS -> Run workflow, branch main).
+# Runs alongside deploy.yml (droplet) until cutover.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment
+        type: choice
+        options: [staging, production]
+        default: staging
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    # ECS hosts are Graviton (arm64)
+    runs-on: ubuntu-24.04-arm
+    environment: ${{ inputs.environment || 'staging' }}
+    concurrency:
+      group: deploy-aws-${{ inputs.environment || 'staging' }}
+      cancel-in-progress: false
+    env:
+      ENV_NAME: ${{ inputs.environment || 'staging' }}
+      AWS_REGION: eu-west-2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Image name
+        id: image
+        run: |
+          TAG="${GITHUB_SHA::12}"
+          echo "uri=$(bash deploy/aws/release.sh image-uri "$ENV_NAME" "$TAG")" >> "$GITHUB_OUTPUT"
+          if bash deploy/aws/release.sh image-exists "$ENV_NAME" "$TAG"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+          # The first deploy has an empty database, so no maintenance mode or queue wait
+          if bash deploy/aws/release.sh deployed "$ENV_NAME"; then
+            echo "deployed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.image.outputs.exists != 'true'
+
+      - name: Build and push
+        if: steps.image.outputs.exists != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          tags: ${{ steps.image.outputs.uri }}
+          cache-from: type=gha,scope=${{ env.ENV_NAME }}
+          cache-to: type=gha,mode=max,scope=${{ env.ENV_NAME }}
+
+      - name: Point the one-off task at the new image
+        run: bash deploy/aws/release.sh prepare "$ENV_NAME" "${{ steps.image.outputs.uri }}"
+
+      - name: Maintenance mode on
+        id: down
+        if: steps.image.outputs.deployed == 'true'
+        run: bash deploy/aws/release.sh down "$ENV_NAME"
+
+      - name: Wait for running jobs to finish
+        if: steps.image.outputs.deployed == 'true'
+        run: bash deploy/aws/release.sh await-idle "$ENV_NAME"
+
+      - name: Snapshot the database
+        if: env.ENV_NAME == 'production'
+        run: bash deploy/aws/release.sh snapshot "$ENV_NAME" "${GITHUB_SHA::7}-${GITHUB_RUN_ID}"
+
+      - name: Migrate
+        run: bash deploy/aws/release.sh run "$ENV_NAME" 900 php artisan migrate --force
+
+      - name: Release web, workers and scheduler
+        run: bash deploy/aws/release.sh release "$ENV_NAME" "${{ steps.image.outputs.uri }}"
+
+      # Runs even if a step above failed, as the droplet deploy does
+      - name: Maintenance mode off
+        if: always() && steps.down.outcome == 'success'
+        run: bash deploy/aws/release.sh up "$ENV_NAME"
+
+      - name: Remove older pre-deploy snapshots
+        if: env.ENV_NAME == 'production'
+        run: bash deploy/aws/release.sh prune-snapshots "$ENV_NAME" 10
