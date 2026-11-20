@@ -4,7 +4,7 @@
 # Usage: deploy/aws/release.sh <command> <env> [args]
 #   image-uri <env> <tag>             print the image URI for a tag
 #   image-exists <env> <tag>          exit 0 if the tag is already in ECR
-#   deployed <env>                    exit 0 if the services stack exists (not the first deploy)
+#   deployed <env>                    exit 0 if web is running (not the first deploy)
 #   prepare <env> <image-uri>         move the one-off task to the new image (services unchanged)
 #   run <env> <timeout-s> <cmd...>    run a one-off task and fail on a non-zero exit
 #   down <env>                        maintenance mode on (shared by every container)
@@ -55,21 +55,30 @@ services_output() {
     --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text
 }
 
-current_image() {
+# A parameter of the deployed services stack; empty if the stack doesn't exist
+services_param() {
   aws cloudformation describe-stacks --stack-name "$SERVICES_STACK" --region "$REGION" \
-    --query "Stacks[0].Parameters[?ParameterKey=='ImageUri'].ParameterValue" --output text 2>/dev/null || true
+    --query "Stacks[0].Parameters[?ParameterKey=='$1'].ParameterValue" --output text 2>/dev/null || true
 }
 
-# Third argument "empty": create the services with no tasks (first deploy, before migrations)
+current_image() {
+  services_param ImageUri
+}
+
+# Third argument "keep-counts": task counts stay as deployed (0 if nothing is), so only
+# release scales the services, after migrations
 deploy_services() {
-  local image="$1" oneoff_image="$2" mode="${3:-}" p v
+  local image="$1" oneoff_image="$2" mode="${3:-}" p v n
   local overrides=("ProjectName=${PROJECT_NAME}" "EnvName=${ENV_NAME}" "ImageUri=${image}" "OneOffImageUri=${oneoff_image}")
   for p in "${INFRA_PARAMS[@]}"; do overrides+=("${p}=$(infra_output "$p")"); done
   for v in $(compgen -v CFN_PARAM_ || true); do
-    if [[ "$mode" == "empty" && "$v" == *Count ]]; then
-      overrides+=("${v#CFN_PARAM_}=0")
+    n="${v#CFN_PARAM_}"
+    if [[ "$mode" == "keep-counts" && "$n" == *Count ]]; then
+      p="$(services_param "$n")"
+      [[ "$p" =~ ^[0-9]+$ ]] || p=0
+      overrides+=("${n}=${p}")
     else
-      overrides+=("${v#CFN_PARAM_}=${!v}")
+      overrides+=("${n}=${!v}")
     fi
   done
   aws cloudformation deploy \
@@ -83,7 +92,8 @@ run_oneoff() {
   cluster="$(infra_output ClusterName)"
   cp="$(infra_output CapacityProviderName)"
   td="$(services_output OneOffTaskDefinitionArn)"
-  overrides="$(jq -cn --args '{containerOverrides: [{name: "app", command: $ARGS.positional}]}' "$@")"
+  # Command passed on stdin, so jq never reads its words (e.g. --force) as options
+  overrides="$(printf '%s\0' "$@" | jq -cRs '{containerOverrides: [{name: "app", command: (split("\u0000") | .[:-1])}]}')"
 
   echo "==> One-off task: $*"
   task_arn="$(aws ecs run-task --cluster "$cluster" --task-definition "$td" --region "$REGION" \
@@ -125,18 +135,16 @@ case "$CMD" in
     aws ecr describe-images --repository-name "${repo#*/}" --image-ids "imageTag=${1:?tag}" --region "$REGION" >/dev/null 2>&1
     ;;
   deployed)
-    aws cloudformation describe-stacks --stack-name "$SERVICES_STACK" --region "$REGION" >/dev/null 2>&1
+    # Web is running, so the database has been migrated
+    web="$(services_param WebCount)"
+    [[ "$web" =~ ^[0-9]+$ && "$web" -gt 0 ]]
     ;;
   prepare)
     image="${1:?image-uri}"
     current="$(current_image)"
-    if [[ -n "$current" && "$current" != "None" ]]; then
-      echo "==> One-off task -> ${image} (services stay on ${current})"
-      deploy_services "$current" "$image"
-    else
-      echo "==> First deploy: services created with no tasks until migrations have run"
-      deploy_services "$image" "$image" empty
-    fi
+    [[ -n "$current" && "$current" != "None" ]] || current="$image"
+    echo "==> One-off task -> ${image} (services stay on ${current}, task counts unchanged)"
+    deploy_services "$current" "$image" keep-counts
     ;;
   run)
     timeout="${1:?timeout-s}"; shift
