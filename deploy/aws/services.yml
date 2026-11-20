@@ -114,7 +114,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvName
 
-  # queue:work exits after --max-time; the restart policy restarts it in place
+  # No --max-time: in maintenance mode the worker exits at once with it set (Laravel 11), which fails the release
   WorkerTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -129,7 +129,7 @@ Resources:
           Essential: true
           User: www-data
           MemoryReservation: !Ref WorkerMemory
-          Command: [php, artisan, "queue:work", "--sleep=3", "--tries=3", "--max-time=3600"]
+          Command: [php, artisan, "queue:work", "--sleep=3", "--tries=3"]
           StopTimeout: 120
           RestartPolicy:
             Enabled: true
