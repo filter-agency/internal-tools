@@ -47,6 +47,9 @@ RUN rm -f .env \
  && mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs \
  && chown -R www-data:www-data storage bootstrap/cache
 
+# tinker (PsySH) writes its config under $HOME, which www-data cannot write
+ENV XDG_CONFIG_HOME=/tmp
+
 EXPOSE 80
 ENTRYPOINT ["entrypoint"]
 CMD ["supervisord", "-c", "/etc/supervisord.conf"]
