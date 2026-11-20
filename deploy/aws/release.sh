@@ -60,11 +60,18 @@ current_image() {
     --query "Stacks[0].Parameters[?ParameterKey=='ImageUri'].ParameterValue" --output text 2>/dev/null || true
 }
 
+# Third argument "empty": create the services with no tasks (first deploy, before migrations)
 deploy_services() {
-  local image="$1" oneoff_image="$2" p v
+  local image="$1" oneoff_image="$2" mode="${3:-}" p v
   local overrides=("ProjectName=${PROJECT_NAME}" "EnvName=${ENV_NAME}" "ImageUri=${image}" "OneOffImageUri=${oneoff_image}")
   for p in "${INFRA_PARAMS[@]}"; do overrides+=("${p}=$(infra_output "$p")"); done
-  for v in $(compgen -v CFN_PARAM_ || true); do overrides+=("${v#CFN_PARAM_}=${!v}"); done
+  for v in $(compgen -v CFN_PARAM_ || true); do
+    if [[ "$mode" == "empty" && "$v" == *Count ]]; then
+      overrides+=("${v#CFN_PARAM_}=0")
+    else
+      overrides+=("${v#CFN_PARAM_}=${!v}")
+    fi
+  done
   aws cloudformation deploy \
     --template-file deploy/aws/services.yml --stack-name "$SERVICES_STACK" --region "$REGION" \
     --no-fail-on-empty-changeset --parameter-overrides "${overrides[@]}"
@@ -123,9 +130,13 @@ case "$CMD" in
   prepare)
     image="${1:?image-uri}"
     current="$(current_image)"
-    [[ -n "$current" && "$current" != "None" ]] || current="$image"
-    echo "==> One-off task -> ${image} (services stay on ${current})"
-    deploy_services "$current" "$image"
+    if [[ -n "$current" && "$current" != "None" ]]; then
+      echo "==> One-off task -> ${image} (services stay on ${current})"
+      deploy_services "$current" "$image"
+    else
+      echo "==> First deploy: services created with no tasks until migrations have run"
+      deploy_services "$image" "$image" empty
+    fi
     ;;
   run)
     timeout="${1:?timeout-s}"; shift
