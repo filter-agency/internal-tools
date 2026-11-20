@@ -4,7 +4,8 @@ name: Deploy to AWS
 # Runs alongside deploy.yml (droplet) until cutover.
 on:
   push:
-    branches: [main]
+    # TEMPORARY: aws-deploy tests the pipeline on staging before merge. Remove before merging.
+    branches: [main, aws-deploy]
   workflow_dispatch:
     inputs:
       environment:
