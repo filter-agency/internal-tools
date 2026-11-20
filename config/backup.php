@@ -13,6 +13,9 @@ use Spatie\Backup\Tasks\Monitor\HealthChecks\MaximumStorageInMegabytes;
 
 return [
 
+    // Whether the scheduler runs the backup commands. Off on AWS, where RDS takes the backups.
+    'schedule_enabled' => env('BACKUP_SCHEDULE_ENABLED', true),
+
     'backup' => [
         /*
          * The name of this application. You can use this name to monitor
