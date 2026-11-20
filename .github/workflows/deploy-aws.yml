@@ -1,17 +1,12 @@
 name: Deploy to AWS
 
-# Push to main -> staging. Production is run by hand (Actions -> Deploy to AWS -> Run workflow, branch main).
+# Push to staging -> staging, push to main -> production (as the ticket specifies).
+# A manual run deploys the chosen branch the same way: main to production, any other branch to staging.
 # Runs alongside deploy.yml (droplet) until cutover.
 on:
   push:
-    branches: [main]
+    branches: [staging, main]
   workflow_dispatch:
-    inputs:
-      environment:
-        description: Environment
-        type: choice
-        options: [staging, production]
-        default: staging
 
 permissions:
   id-token: write
@@ -21,12 +16,12 @@ jobs:
   deploy:
     # ECS hosts are Graviton (arm64)
     runs-on: ubuntu-24.04-arm
-    environment: ${{ inputs.environment || 'staging' }}
+    environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
     concurrency:
-      group: deploy-aws-${{ inputs.environment || 'staging' }}
+      group: deploy-aws-${{ github.ref_name == 'main' && 'production' || 'staging' }}
       cancel-in-progress: false
     env:
-      ENV_NAME: ${{ inputs.environment || 'staging' }}
+      ENV_NAME: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
       AWS_REGION: eu-west-2
     steps:
       - uses: actions/checkout@v4
